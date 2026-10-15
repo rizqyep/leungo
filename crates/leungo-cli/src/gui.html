@@ -497,7 +497,7 @@ function render() {
   const d = state.data; if (!d) return;
   if (d.mode && Date.now() - (state.modeTouched || 0) > 1500) applyMode(d.mode);
   renderSetup(d.setup);
-  $('devices').hidden = !!d.setup || !dev.outputs.length;
+  $('devices').hidden = !!d.setup;
   if (d.setup) { $('stateText').textContent = d.setup.blocker === 'output' ? 'Choose an output' : 'Setup needed'; $('statePill').className = 'pill bypassed'; return; }
   const bypassed = !!d.bypassed;
   const pill = $('statePill');

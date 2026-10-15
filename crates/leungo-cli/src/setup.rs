@@ -150,15 +150,16 @@ pub fn device_lost(loopback: &str, wanted_output: &str) -> bool {
 /// engine cannot be pointed back at its own input.
 #[cfg(target_os = "macos")]
 pub fn choices(loopback: &str) -> Choices {
-    let list = leungo_standalone::io::list_devices().unwrap_or_default();
     let mut out = Choices::default();
-    for d in &list {
+    for d in leungo_standalone::io::list_devices().unwrap_or_default() {
         if d.input && !out.inputs.contains(&d.name) {
-            out.inputs.push(d.name.clone());
+            out.inputs.push(d.name);
         }
-        let is_loopback = any_matches(std::iter::once(d.name.as_str()), loopback);
-        if d.output && !is_loopback && !out.outputs.contains(&d.name) {
-            out.outputs.push(d.name.clone());
+    }
+    for o in leungo_standalone::route::outputs() {
+        let is_loopback = any_matches(std::iter::once(o.name.as_str()), loopback);
+        if !is_loopback && !out.outputs.contains(&o.name) {
+            out.outputs.push(o.name);
         }
     }
     out
