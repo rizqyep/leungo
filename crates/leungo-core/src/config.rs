@@ -124,6 +124,9 @@ pub struct StandaloneCfg {
     /// Output queue length, milliseconds. Lower is tighter lip sync, higher
     /// is safer against dropouts.
     pub latency_ms: u32,
+    /// Point the system output at the loopback device while leungo runs and
+    /// restore the previous device afterwards.
+    pub manage_output: bool,
 }
 
 impl Default for StandaloneCfg {
@@ -132,6 +135,7 @@ impl Default for StandaloneCfg {
             input_device: "BlackHole".into(),
             output_device: String::new(),
             latency_ms: 60,
+            manage_output: true,
         }
     }
 }

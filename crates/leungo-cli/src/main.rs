@@ -6,6 +6,7 @@ use leungo_core::{Engine, Status, paths};
 use leungo_eq::BAND_FREQS;
 mod gui;
 mod platform;
+mod routing;
 mod setup;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,6 +35,9 @@ enum Cmd {
         /// Do not open the browser window automatically.
         #[arg(long)]
         no_open: bool,
+        /// Quit when the dashboard window is closed.
+        #[arg(long)]
+        quit_on_close: bool,
     },
     /// Print the daemon status.
     Status,
@@ -68,6 +72,8 @@ enum Cmd {
     Fit,
     /// List audio devices (macOS standalone engine).
     Devices,
+    /// Put the system output back after an unclean exit (macOS).
+    Restore,
     /// Check the audio prerequisites and install the BlackHole driver (macOS).
     Setup,
     /// Print the config file path.
@@ -91,11 +97,16 @@ fn main() {
 fn dispatch(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Run => run(),
-        Cmd::Gui { port, no_open } => gui(port, no_open),
+        Cmd::Gui {
+            port,
+            no_open,
+            quit_on_close,
+        } => gui(port, no_open, quit_on_close),
         Cmd::Status => status(),
         Cmd::MonitorMpris => monitor_mpris(),
         Cmd::Devices => platform::print_devices(),
         Cmd::Setup => setup_cmd(),
+        Cmd::Restore => restore_cmd(),
         Cmd::Tuning { name } => tuning(name.as_deref()),
         Cmd::Sound {
             bass,
@@ -177,6 +188,14 @@ fn monitor_mpris() -> Result<()> {
     Ok(())
 }
 
+fn restore_cmd() -> Result<()> {
+    match routing::restore_saved()? {
+        Some(name) => println!("system output restored to {name}"),
+        None => println!("nothing to restore"),
+    }
+    Ok(())
+}
+
 fn setup_cmd() -> Result<()> {
     if !cfg!(target_os = "macos") {
         println!("nothing to set up: on Linux leungo captures the PipeWire monitor directly.");
@@ -201,12 +220,12 @@ fn setup_cmd() -> Result<()> {
     Ok(())
 }
 
-fn gui(port_arg: Option<u16>, no_open: bool) -> Result<()> {
+fn gui(port_arg: Option<u16>, no_open: bool, quit_on_close: bool) -> Result<()> {
     let mut cfg = paths::load_or_create_config()?;
     paths::apply_device_choice(&mut cfg);
     cfg.validate()?;
     let port = port_arg.unwrap_or(cfg.gui.port);
-    gui::run_gui(cfg, port, !no_open)
+    gui::run_gui(cfg, port, !no_open, quit_on_close)
 }
 
 fn status() -> Result<()> {

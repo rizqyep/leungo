@@ -123,14 +123,26 @@
   #setup button.primary:disabled { opacity: .6; cursor: default; }
   #setupDetail.failed { color: var(--err); }
   .devices .row { display: grid; grid-template-columns: 90px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
-  .devices select, #setup select { font: inherit; color: var(--paper); background: var(--panel-2);
+  #simpleOut select, .devices select, #setup select { font: inherit; color: var(--paper); background: var(--panel-2);
     border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; width: 100%; min-width: 0; }
-  .devices select, #setup select { color-scheme: dark; }
-  .devices option, #setup option { color: var(--paper); background: var(--panel-2); }
-  .devices option:disabled, #setup option:disabled { color: var(--faint); }
-  .devices select:focus-visible, #setup select:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
+  #simpleOut select, .devices select, #setup select { color-scheme: dark; }
+  #simpleOut option, .devices option, #setup option { color: var(--paper); background: var(--panel-2); }
+  #simpleOut option:disabled, .devices option:disabled, #setup option:disabled { color: var(--faint); }
+  #simpleOut select:focus-visible, .devices select:focus-visible, #setup select:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
   .devices[hidden], #setupOutput[hidden], #setupDriverBlock[hidden] { display: none; }
   .hint.warn { color: var(--err); }
+  .simple-only { display: none; }
+  body.mode-simple .simple-only { display: block; }
+  body.mode-simple .layout, body.mode-simple #devices, body.mode-simple .chips { display: none; }
+  body.mode-advanced .simple-only { display: none; }
+  body.mode-simple.setup-mode .simple-only { display: none; }
+  #modeToggle { padding: 6px 12px; font-size: 12.5px; }
+  .styles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .styles button { text-align: left; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .styles button b { font-size: 15px; color: inherit; font-weight: 600; }
+  .styles button span { font-size: 12.5px; opacity: .85; }
+  #simpleStatus { margin-top: 6px; color: var(--dim); }
+  #simpleOutNote { margin: 8px 0 0; }
   #loadingCard { display: none; color: var(--dim); }
   .loading #loadingCard { display: block; }
   .loading .now, .loading .layout, .loading #setup, .loading #devices { display: none; }
@@ -138,17 +150,18 @@
   footer { color: var(--faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
 </style>
 </head>
-<body class="loading">
+<body class="loading mode-simple">
 <div class="wrap">
   <header>
     <span class="logo" role="img" aria-label="leungo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="160" height="40" aria-hidden="true" focusable="false"><rect width="100" height="100" rx="22" fill="#141614"/><g transform="translate(50 50) scale(0.72) translate(-58 -48.75)"><path d="M30 14L30 60C30 74 38 80 48 78C58 76 60 60 70 58C78 56 82 62 86 64" fill="none" stroke="#F6F7F2" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="78" r="7.5" fill="#E39A2C" stroke="#141614" stroke-width="3"/><circle cx="70" cy="58" r="7.5" fill="#E39A2C" stroke="#141614" stroke-width="3"/></g><path fill="#F6F7F2" d="M130.88 71.36V12.96H142.0V71.36ZM125.44 21.28V12.96H142.0V21.28Z M171.76 72.88Q166.16 72.88 161.95999999999998 70.96000000000001Q157.76 69.04 155.0 65.82000000000001Q152.24 62.6 150.84 58.599999999999994Q149.44 54.599999999999994 149.44 50.4V48.879999999999995Q149.44 44.56 150.84 40.54Q152.24 36.519999999999996 154.98000000000002 33.339999999999996Q157.72 30.159999999999997 161.82 28.279999999999998Q165.92000000000002 26.4 171.28 26.4Q178.32 26.4 183.06 29.5Q187.8 32.6 190.22 37.58Q192.64 42.56 192.64 48.32V52.36H154.16V45.56H185.64L182.24 48.879999999999995Q182.24 44.72 181.02 41.76Q179.8 38.8 177.38 37.2Q174.96 35.6 171.28 35.6Q167.56 35.6 165.0 37.3Q162.44 39.0 161.14 42.14Q159.84 45.28 159.84 49.68Q159.84 53.8 161.10000000000002 56.959999999999994Q162.36 60.12 165.0 61.9Q167.64 63.68 171.76 63.68Q175.8 63.68 178.36 62.04Q180.92000000000002 60.4 181.64 58.04H191.88Q190.96 62.48 188.22000000000003 65.84Q185.48000000000002 69.2 181.3 71.03999999999999Q177.12 72.88 171.76 72.88Z M214.32 72.72Q206.76 72.72 202.66 67.78Q198.56 62.84 198.56 53.08V27.879999999999995H209.67999999999998V54.04Q209.67999999999998 58.04 211.92 60.379999999999995Q214.16 62.72 217.95999999999998 62.72Q221.83999999999997 62.72 224.27999999999997 60.26Q226.72 57.8 226.72 53.56V27.879999999999995H237.83999999999997V71.36H229.04V52.92H229.92Q229.92 59.48 228.21999999999997 63.879999999999995Q226.51999999999998 68.28 223.17999999999998 70.5Q219.83999999999997 72.72 214.79999999999998 72.72Z M248.24 71.36V27.92H257.04V46.56H256.24Q256.24 39.959999999999994 257.98 35.519999999999996Q259.72 31.08 263.22 28.819999999999997Q266.72 26.559999999999995 271.88 26.559999999999995H272.36Q280.16 26.559999999999995 284.16 31.58Q288.16 36.6 288.16 46.519999999999996V71.36H277.04V45.519999999999996Q277.04 41.519999999999996 274.74 39.03999999999999Q272.44 36.559999999999995 268.44 36.559999999999995Q264.36 36.559999999999995 261.86 39.099999999999994Q259.36 41.64 259.36 45.84V71.36Z M314.6 88.52Q311.48 88.52 308.24 88.28Q305.0 88.03999999999999 302.24 87.64V78.32Q305.08000000000004 78.68 308.38 78.96000000000001Q311.68 79.24 314.52000000000004 79.24Q319.92 79.24 323.24 77.94Q326.56 76.64 328.1 73.9Q329.64 71.16 329.64 66.88V58.32L332.04 52.879999999999995Q331.84000000000003 58.92 329.6 63.12Q327.36 67.32 323.52 69.5Q319.68 71.67999999999999 314.64 71.67999999999999Q310.16 71.67999999999999 306.5 70.02Q302.84000000000003 68.36 300.24 65.38Q297.64 62.4 296.22 58.42Q294.8 54.44 294.8 49.879999999999995V48.2Q294.8 43.599999999999994 296.28 39.64Q297.76 35.68 300.48 32.739999999999995Q303.2 29.799999999999997 306.96000000000004 28.179999999999996Q310.72 26.559999999999995 315.28000000000003 26.559999999999995Q320.6 26.559999999999995 324.56000000000006 28.879999999999995Q328.52000000000004 31.199999999999996 330.78000000000003 35.62Q333.04 40.04 333.24 46.4L331.32 46.72V27.92H340.12V66.24Q340.12 74.16 337.42 79.06Q334.72 83.96 329.08000000000004 86.24Q323.44 88.52 314.6 88.52ZM317.8 62.16Q321.04 62.16 323.68 60.72Q326.32 59.28 327.9 56.56Q329.48 53.84 329.48 50.04V47.239999999999995Q329.48 43.519999999999996 327.84000000000003 40.959999999999994Q326.20000000000005 38.4 323.56000000000006 37.08Q320.92 35.76 317.84000000000003 35.76Q314.32 35.76 311.62 37.4Q308.92 39.04 307.42 42.019999999999996Q305.92 45.0 305.92 49.04Q305.92 53.08 307.44000000000005 56.04Q308.96000000000004 59.0 311.64 60.58Q314.32 62.16 317.8 62.16Z M370.76000000000005 72.88Q365.04 72.88 360.64 71.03999999999999Q356.24 69.2 353.20000000000005 66.06Q350.16 62.92 348.6 58.92Q347.04 54.92 347.04 50.56V48.879999999999995Q347.04 44.44 348.66 40.379999999999995Q350.28000000000003 36.32 353.36 33.18Q356.44 30.04 360.84000000000003 28.22Q365.24 26.4 370.76000000000005 26.4Q376.32000000000005 26.4 380.70000000000005 28.22Q385.08000000000004 30.04 388.16 33.18Q391.24 36.32 392.86 40.379999999999995Q394.48 44.44 394.48 48.879999999999995V50.56Q394.48 54.92 392.92 58.92Q391.36 62.92 388.32000000000005 66.06Q385.28000000000003 69.2 380.88 71.03999999999999Q376.48 72.88 370.76000000000005 72.88ZM370.76000000000005 63.36Q374.84000000000003 63.36 377.64000000000004 61.58Q380.44000000000005 59.8 381.90000000000003 56.699999999999996Q383.36 53.599999999999994 383.36 49.72Q383.36 45.72 381.86 42.62Q380.36 39.519999999999996 377.54 37.72Q374.72 35.92 370.76000000000005 35.92Q366.84000000000003 35.92 364.0 37.72Q361.16 39.519999999999996 359.66 42.62Q358.16 45.72 358.16 49.72Q358.16 53.599999999999994 359.62 56.699999999999996Q361.08000000000004 59.8 363.90000000000003 61.58Q366.72 63.36 370.76000000000005 63.36Z"/></svg>
 </span>
     <span class="pill" id="statePill" aria-live="polite"><span class="dot"></span><span id="stateText">Starting</span></span>
     <span class="spacer"></span>
+    <button id="modeToggle" type="button" title="Switch between the simple and the advanced view">Advanced</button>
     <label class="switch" title="Turn the adaptive EQ off to hear the original sound">
       <input type="checkbox" id="adaptive" checked>
       <span class="track"></span>
-      <span id="adaptiveLabel">Adaptive EQ</span>
+      <span id="adaptiveLabel">Better sound</span>
     </label>
   </header>
 
@@ -156,12 +169,24 @@
     <div class="meta">
       <div class="title" id="npTitle"><span class="empty">Nothing playing</span></div>
       <div class="sub" id="npSub">Play something and leungo will start listening.</div>
+      <div class="sub" id="simpleStatus"></div>
     </div>
     <div class="chips">
       <span class="chip" id="chipStyle" hidden>Style <b id="styleName"></b></span>
       <span class="chip" id="chipRel" hidden title="How closely two halves of the measurement agree. High means the reading is stable.">Measurement <b id="relPct"></b><span class="meter"><i id="relBar"></i></span></span>
       <span class="chip" id="chipTracks">Tracks <b id="tracks">0</b></span>
     </div>
+  </section>
+
+  <section class="card simple-only" id="simpleStyle" aria-label="Sound style">
+    <h2>Sound style</h2>
+    <div class="styles" id="styleButtons"></div>
+  </section>
+
+  <section class="card simple-only" id="simpleOut" aria-label="Play through">
+    <h2>Play through</h2>
+    <select id="simple_out" aria-label="Play through" disabled><option>Loading devices...</option></select>
+    <p class="hint" id="simpleOutNote"></p>
   </section>
 
   <section class="card" id="loadingCard" role="status" aria-live="polite">Loading Leungo...</section>
@@ -338,23 +363,27 @@ function renderSetup(setup) {
 
 // ---- audio devices
 const dev = { open: false, inputs: [], outputs: [], input: '', output: '', busy: false };
-function fillSelect(el, names, current, placeholder) {
-  const key = names.join('\n') + '|' + current;
+function fillSelect(el, names, current, placeholder, auto) {
+  const key = names.join('\n') + '|' + current + '|' + (auto ? 'a' : '');
   if (el.dataset.key === key) return;
   el.dataset.key = key;
   const picked = el.value;
   el.textContent = '';
-  const cur = names.includes(picked)
-    ? picked
+  const known = names.includes(picked) ? picked
     : names.find((n) => current && n.toLowerCase().includes(current.toLowerCase()));
-  if (!cur) {
+  if (auto) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = 'Automatic (follows your system)';
+    o.selected = !current && !names.includes(picked);
+    el.appendChild(o);
+  } else if (!known) {
     const o = document.createElement('option');
     o.value = ''; o.textContent = placeholder; o.selected = true; o.disabled = true;
     el.appendChild(o);
   }
   names.forEach((n) => {
     const o = document.createElement('option');
-    o.value = n; o.textContent = n; o.selected = n === cur;
+    o.value = n; o.textContent = n; o.selected = n === known;
     el.appendChild(o);
   });
   el.disabled = false;
@@ -371,7 +400,7 @@ async function refreshDevices() {
   } catch (e) {
     dev.fails = (dev.fails || 0) + 1;
     const msg = dev.fails >= 3 ? 'Could not load devices, retrying...' : 'Loading devices...';
-    ['dev_in', 'dev_out', 'setupOutputSelect'].forEach((id) => {
+    ['dev_in', 'dev_out', 'simple_out', 'setupOutputSelect'].forEach((id) => {
       const el = $(id);
       if (el.disabled && el.options.length === 1) el.options[0].textContent = msg;
     });
@@ -380,7 +409,9 @@ async function refreshDevices() {
   }
   dev.fails = 0;
   fillSelect($('dev_in'), dev.inputs, dev.input, 'Choose an input');
-  fillSelect($('dev_out'), dev.outputs, dev.output, 'Choose an output');
+  fillSelect($('dev_out'), dev.outputs, dev.output, 'Choose an output', true);
+  fillSelect($('simple_out'), dev.outputs, dev.output, 'Choose an output', true);
+  $('simpleOutNote').textContent = dev.active ? 'Playing to ' + dev.active : '';
   fillSelect($('setupOutputSelect'), dev.outputs, dev.output, 'Choose an output');
   const missing = dev.output && !dev.outputs.some((n) => n.toLowerCase().includes(dev.output.toLowerCase()));
   $('devHint').textContent = missing
@@ -395,7 +426,7 @@ function devNote(msg, bad) {
   });
 }
 async function saveDevices(input, output) {
-  if (!input || !output || dev.busy) return;
+  if (!input || output === undefined || dev.busy) return;
   dev.busy = true;
   $('setupOutputSave').disabled = true;
   devNote('Saving...', false);
@@ -413,6 +444,7 @@ async function saveDevices(input, output) {
 }
 $('dev_in').addEventListener('change', (e) => saveDevices(e.target.value, $('dev_out').value || dev.output));
 $('dev_out').addEventListener('change', (e) => saveDevices($('dev_in').value || dev.input, e.target.value));
+$('simple_out').addEventListener('change', (e) => saveDevices(dev.input, e.target.value));
 $('setupOutputSave').addEventListener('click', () => {
   const v = $('setupOutputSelect').value;
   if (v) saveDevices(dev.input, v);
@@ -420,16 +452,62 @@ $('setupOutputSave').addEventListener('click', () => {
 setInterval(refreshDevices, 3000);
 refreshDevices();
 
+function np_has(d) { return !!(d.nowPlaying && (d.nowPlaying.title || d.nowPlaying.artist)); }
+
+// ---- simple mode
+const STYLES = [
+  { id: 'neutral', name: 'Natural', note: 'Clean and true to the recording' },
+  { id: 'warm',    name: 'Warm',    note: 'Fuller and smoother' },
+  { id: 'bright',  name: 'Bright',  note: 'Clearer vocals and sparkle' },
+  { id: 'punch',   name: 'Punchy',  note: 'More bass and energy' },
+];
+const styleEl = $('styleButtons');
+STYLES.forEach((st) => {
+  const p = PRESETS.find((x) => x.id === st.id);
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = st.id; b.setAttribute('aria-pressed', 'false');
+  b.innerHTML = '<b></b><span></span>';
+  b.firstChild.textContent = st.name; b.lastChild.textContent = st.note;
+  b.onclick = () => { KEYS.forEach((k) => { $('s_' + k).value = p.v[k]; }); renderOutputs(); sendSound(true); markStyle(p.v); };
+  styleEl.appendChild(b);
+});
+function markStyle(v) {
+  STYLES.forEach((st) => {
+    const p = PRESETS.find((x) => x.id === st.id);
+    const on = KEYS.every((k) => Math.abs((v[k] || 0) - p.v[k]) < 0.3);
+    styleEl.querySelector('[data-id="' + st.id + '"]').setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+const SIMPLE_LABEL = { active: 'Improving your sound', analyzing: 'Listening to this song', idle: 'Waiting for music', starting: 'Starting' };
+function applyMode(mode) {
+  document.body.classList.toggle('mode-simple', mode === 'simple');
+  document.body.classList.toggle('mode-advanced', mode === 'advanced');
+  $('modeToggle').textContent = mode === 'simple' ? 'Advanced' : 'Simple';
+  state.mode = mode;
+}
+$('modeToggle').addEventListener('click', () => {
+  const next = state.mode === 'simple' ? 'advanced' : 'simple';
+  state.modeTouched = Date.now();
+  applyMode(next);
+  fetch('/api/mode/' + next, { method: 'POST' }).catch(() => {});
+});
+
 // ---- render state
 function render() {
   const d = state.data; if (!d) return;
+  if (d.mode && Date.now() - (state.modeTouched || 0) > 1500) applyMode(d.mode);
   renderSetup(d.setup);
   $('devices').hidden = !!d.setup || !dev.outputs.length;
   if (d.setup) { $('stateText').textContent = d.setup.blocker === 'output' ? 'Choose an output' : 'Setup needed'; $('statePill').className = 'pill bypassed'; return; }
   const bypassed = !!d.bypassed;
   const pill = $('statePill');
   pill.className = 'pill ' + (bypassed ? 'bypassed' : d.state);
-  $('stateText').textContent = bypassed ? 'Bypassed' : (STATE_LABEL[d.state] || d.state);
+  const simple = state.mode === 'simple';
+  $('stateText').textContent = bypassed
+    ? (simple ? 'Better sound is off' : 'Bypassed')
+    : ((simple ? SIMPLE_LABEL : STATE_LABEL)[d.state] || d.state);
+  $('simpleStatus').textContent = bypassed ? 'Better sound is off. Switch it on to hear the difference.'
+    : (np_has(d) ? (SIMPLE_LABEL[d.state] || '') : '');
   if (Date.now() - state.bypassTouched > 1500) $('adaptive').checked = !bypassed;
 
   const np = d.nowPlaying;
@@ -458,6 +536,7 @@ function render() {
     KEYS.forEach((k) => { $('s_' + k).value = d.sound[k]; });
     $('s_device').value = Math.round(d.sound.device * 100);
     renderOutputs();
+    markStyle(d.sound);
   }
   drawChart();
 }
@@ -560,6 +639,7 @@ async function poll() {
     $('statePill').className = 'pill bypassed';
   }
 }
+window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye'); } catch (e) {} });
 renderOutputs(); setTuning('balanced');
 poll(); setInterval(poll, 250);
 </script>

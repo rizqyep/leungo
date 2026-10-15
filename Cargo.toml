@@ -37,7 +37,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "6"
 hound = "3"
-ctrlc = "3"
+ctrlc = { version = "3", features = ["termination"] }
 
 [profile.release]
 lto = "thin"

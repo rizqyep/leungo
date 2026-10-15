@@ -112,6 +112,35 @@ pub fn save_device_choice(input: &str, output: &str) -> Result<()> {
     std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))
 }
 
+pub fn ui_path() -> PathBuf {
+    config_path().with_file_name("ui.json")
+}
+
+pub fn load_ui_mode() -> String {
+    let mode = std::fs::read_to_string(ui_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v["mode"].as_str().map(str::to_string));
+    match mode.as_deref() {
+        Some("advanced") => "advanced".into(),
+        _ => "simple".into(),
+    }
+}
+
+pub fn save_ui_mode(mode: &str) -> Result<()> {
+    let path = ui_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    std::fs::write(&path, serde_json::json!({ "mode": mode }).to_string())
+        .with_context(|| format!("write {}", path.display()))
+}
+
+/// The output to put back when leungo stops; survives a crash.
+pub fn route_path() -> PathBuf {
+    config_path().with_file_name("route.json")
+}
+
 pub fn load_or_create_config() -> Result<Config> {
     let path = config_path();
     if !path.exists() {

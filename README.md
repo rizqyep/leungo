@@ -5,21 +5,103 @@
   </picture>
 </p>
 
+# Better sound from any music app, automatically
+
 Leungo is Acehnese for "listen".
 
-An adaptive per-track parametric EQ. It listens to whatever your system is
-playing, estimates the track's spectral balance and musical character at the
-start of each song, and retunes an 8-band parametric EQ so you stop
-hand-adjusting settings for every track.
+Open Leungo, play music in Spotify, Apple Music or any other app, and it adjusts the
+sound for you. It listens to each song, works out whether it is bass-heavy, vocal-led,
+bright or balanced, and quietly tunes the equalizer to match. You never touch an EQ,
+and you never have to redo it when the next song comes on.
 
-The engine is one Rust codebase. EQ delivery is per platform, because every OS
-injects system-wide audio differently:
+- **Hands-off.** It re-tunes on every track change. There is nothing to configure.
+- **Four sound styles.** Natural, Warm, Bright or Punchy: pick the one you like.
+- **One switch to compare.** Turn "Better sound" off and on to hear the difference.
+- **Works with what you already use.** Any app that plays through your speakers or
+  headphones, with no plug-ins and no per-app setup.
+- **Private.** Everything runs on your computer. Nothing is uploaded and the
+  dashboard loads nothing from the internet.
 
-| Platform | EQ host | Status |
-|---|---|---|
-| Linux (PipeWire or PulseAudio) | EasyEffects | Working (MVP) |
-| Windows | Equalizer APO config generation | Planned |
-| macOS (Apple silicon) | In-process DSP via BlackHole | Experimental: builds and passes tests in CI, audio not yet verified on hardware |
+An advanced view is there if you want spectrum graphs, per-band control and tuning
+presets. It is off by default.
+
+| Platform | Status |
+|---|---|
+| macOS (Apple silicon) | Available as an app. Early release: please report problems. |
+| Linux (PipeWire or PulseAudio) | Working. Needs EasyEffects, built from source. |
+| Windows | Planned |
+
+## Get started
+
+### macOS
+
+1. Download `Leungo-<version>-macos-arm64.dmg` from the
+   [Releases page](https://github.com/rizqyep/leungo/releases) and drag **Leungo** to
+   Applications.
+2. Open it. The app is not signed with an Apple Developer ID yet, so macOS blocks the
+   first launch: right-click **Leungo**, choose **Open**, then **Open** again.
+3. If Leungo asks for the BlackHole audio driver, click **Install BlackHole 2ch**,
+   enter your password, and restart your Mac if the installer asks. Leungo carries on by
+   itself once the driver is there.
+4. Allow the **Microphone** prompt (this is how Leungo hears what your Mac is playing)
+   and, if you want track names, the **Automation** prompt for Spotify or Music.
+5. Play some music.
+
+That is the whole setup. While Leungo runs it routes your Mac's sound through itself and
+plays it to your headphones or speakers. When you close the Leungo window it quits and
+puts your sound output back exactly as it was.
+
+### Linux
+
+You need PipeWire (with `pipewire-pulse`) or PulseAudio, EasyEffects 7 or 8 with the
+`easyeffects` command on `PATH`, a Rust toolchain (1.85 or newer) and a C linker.
+
+```sh
+git clone https://github.com/rizqyep/leungo.git
+cd leungo
+cargo build --release -p leungo-cli
+install -Dm755 target/release/leungo ~/.local/bin/leungo
+```
+
+Start EasyEffects, play something, then run `leungo gui`. The dashboard opens at
+`http://127.0.0.1:8431`.
+
+## Using Leungo
+
+**Simple view** (the default) shows what is playing, a **Better sound** switch, the
+four sound styles and where the sound goes. Choose a style and you are done.
+
+- **Sound style:** Natural keeps the recording as it is. Warm is fuller and smoother.
+  Bright brings out vocals and sparkle. Punchy adds bass and energy.
+- **Play through:** "Automatic" follows whatever your Mac is using, so plugging in
+  headphones just works. Pick a specific device to pin it.
+- **Better sound off:** plays the original, untouched, so you can compare.
+
+**Advanced view** (the button at the top right) adds the live spectrum, the applied EQ
+curve, per-band sound controls, tuning presets and the capture device.
+
+## If something is not right
+
+| What you see | What to do |
+|---|---|
+| "Waiting for music" | Start playing in your music app. If it never changes, check that the Microphone permission is allowed for Leungo in System Settings, Privacy & Security. |
+| No sound at all | Close Leungo, then run `/Applications/Leungo.app/Contents/MacOS/leungo-bin restore` in Terminal to put the output back, and reopen Leungo. |
+| macOS says the app is "damaged" | Run `xattr -dr com.apple.quarantine /Applications/Leungo.app` once in Terminal, then open it again. |
+| The volume keys do nothing | While Leungo runs, your Mac's output is a virtual device with no volume control. Use the volume in your music app. |
+| Video looks slightly out of sync | Leungo adds about 60 ms of delay. It is not noticeable for music; quit Leungo while watching video if it bothers you. |
+| Headphones unplugged | Leungo moves to another output (such as the built-in speakers) and follows your Mac when you plug a device back in. |
+
+Reports are most useful with the first lines of the output from
+`/Applications/Leungo.app/Contents/MacOS/leungo-bin gui` and
+`/Applications/Leungo.app/Contents/MacOS/leungo-bin devices`.
+
+---
+
+# For tinkerers
+
+Everything below is reference material: how the analysis works, the command line, the
+config file and building from source.
+
 
 ## How it works
 
@@ -53,6 +135,7 @@ The track's own spectral tilt is fitted with a robust line (median of pairwise s
 - A transient-energy fraction (the share of band energy that is a short excess over each band's own 9-frame temporal median) is used as a proxy for percussive material. Percussive material is expected to be higher in bass and treble, so those corrections are reduced by `percussive_relief`. The mapping from the fraction to 0..1 (0.15 to 0.45) has not been calibrated against real music. The fraction and reliability are written to `tracks.jsonl` (version 2 rows) so it can be.
 - The archetype label is decided once from the first window and is not changed during the track.
 
+
 ## Device profile
 
 Run `leungo device <files>` with one or more AutoEq `ParametricEQ.txt`
@@ -77,149 +160,6 @@ leungo device ~/Downloads/*ParametricEQ.txt
 The repository does not ship any profile data. AutoEq is MIT licensed; the
 licensing of the underlying measurement data was not checked.
 
-## Installation
-
-| Platform | State |
-|---|---|
-| Linux (PipeWire or PulseAudio) | Works. Tested on Fedora with PipeWire and EasyEffects 8. |
-| macOS (Apple silicon) | Experimental, see below. |
-
-### Linux
-
-You need:
-
-- PipeWire with `pipewire-pulse`, or PulseAudio. Capture uses the PulseAudio
-  API, so both work.
-- EasyEffects 7 or 8 with the `easyeffects` command on `PATH`. The distribution
-  package is what was tested; the Flatpak build was not.
-- A Rust toolchain, 1.85 or newer (the workspace uses edition 2024), and a C
-  linker (`gcc` or `clang`).
-- On Debian or Ubuntu the PulseAudio development package (`libpulse-dev`) may
-  be needed to link. This was not tested; on the Fedora machine used for
-  development the build needed no extra packages.
-
-Build and install:
-
-```sh
-git clone https://github.com/rizqyep/leungo.git
-cd leungo
-cargo build --release -p leungo-cli
-install -Dm755 target/release/leungo ~/.local/bin/leungo
-```
-
-Make sure `~/.local/bin` is on your `PATH`, then:
-
-1. Start EasyEffects (service or background mode is fine) and play something.
-2. Run `leungo gui`. The dashboard opens at `http://127.0.0.1:8431`.
-3. Optional: set your headphone profile, see "Device profile", and pick a
-   tuning preset in the dashboard.
-
-If you used an earlier build called adaptive-eq, your config, track log and
-settings are moved to the new `leungo` directories automatically the first
-time you run `leungo`.
-
-The config is created on first run; `leungo config-path` prints where.
-There is no autostart unit yet, so start the daemon yourself or from your
-desktop's startup applications.
-
-### macOS (experimental)
-
-**Easiest: download the app.** Get `Leungo-<version>-macos-arm64.dmg` from the
-[Releases page](https://github.com/rizqyep/leungo/releases) (Apple silicon only).
-
-1. Open the `.dmg` and drag **Leungo.app** to Applications.
-2. The app is not signed with an Apple Developer ID, so the first launch is
-   blocked. Right-click **Leungo.app**, choose **Open**, then **Open** again.
-   If macOS says the app is "damaged", run this once in Terminal and retry:
-
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Leungo.app
-   ```
-3. Open the app. If the BlackHole loopback driver is missing, the dashboard
-   shows a setup screen with an **Install BlackHole 2ch** button. It downloads
-   the official installer, checks its SHA-256, and opens it; macOS asks for your
-   password, and may ask for a restart. Leungo continues by itself once the
-   driver appears. From a terminal, `leungo setup` does the same.
-4. Follow "Set it up" below. Where it says `leungo ...`, run it as
-   `/Applications/Leungo.app/Contents/MacOS/leungo-bin ...`.
-
-Checksums are published next to each download (`.sha256`). To build it
-yourself instead, use the steps under "Build and install".
-
-What is verified: the code builds on an Apple silicon runner in CI, its
-clippy and test suites pass there, and the resampling, drift control and
-filter chain are covered by unit tests. What is not verified: real audio on
-real hardware. Expect rough edges and please report them.
-
-How it works there: there is no EasyEffects on macOS, so leungo captures a
-virtual loopback device (BlackHole), equalizes in process, and plays the result
-to your real output device. Track information comes from polling Spotify and
-Music with AppleScript.
-
-Prerequisites:
-
-```sh
-xcode-select --install                    # compiler and linker
-curl https://sh.rustup.rs -sSf | sh       # Rust 1.85 or newer
-brew install --cask blackhole-2ch         # the loopback device
-```
-
-Build and install:
-
-```sh
-git clone https://github.com/rizqyep/leungo.git
-cd leungo
-cargo build --release -p leungo-cli
-mkdir -p ~/.local/bin
-install -m755 target/release/leungo ~/.local/bin/leungo   # or any folder on PATH
-```
-
-Set it up:
-
-1. In System Settings, Sound, choose **BlackHole 2ch** as the output. Everything
-   you play now goes to BlackHole instead of your speakers.
-2. Run `leungo devices` and note the exact name of your real output (the
-   speakers or headphones you actually listen on).
-3. Run `leungo config-path`, open that file, and set that name in the
-   `[standalone]` section:
-
-   ```toml
-   [standalone]
-   input_device = "BlackHole"
-   output_device = "MacBook Pro Speakers"   # a part of the name is enough
-   latency_ms = 60
-   ```
-
-   If `output_device` is empty, leungo plays to the system default output. That
-   is BlackHole in step 1, which would feed back, so it refuses to start and
-   lists your devices.
-4. Run `leungo gui`.
-
-Permissions macOS will ask for the first time:
-
-- **Microphone**: capturing from an input device counts as microphone access.
-  Allow it for Leungo (or for the terminal you run `leungo` from).
-- **Automation**: controlling Spotify or Music so track titles and track
-  changes can be read. Without it leungo still works and falls back to
-  detecting silence gaps between tracks.
-
-Known limitations:
-
-- With the output set to BlackHole the keyboard volume keys do not change the
-  loudness. Use the volume control in your player. (BlackHole has no volume
-  control of its own; this is how loopback devices behave, not verified here.)
-- The processing adds about the configured `latency_ms` of delay. That is fine
-  for music and noticeable on video.
-- Only 32-bit float devices are supported, which is what CoreAudio normally
-  offers.
-- The two devices run on separate clocks. A small controller absorbs the
-  difference; it is unit-tested against simulated drift but not yet heard on
-  hardware, so occasional clicks are possible.
-- A config from an earlier build lives under
-  `~/Library/Application Support/leungo`.
-
-If something fails, `leungo devices` and the first lines of the daemon output
-are the most useful things to include in a report.
 
 ## Usage
 
@@ -245,13 +185,15 @@ leungo config-path     # where the config lives
 
 The GUI is a local web page served by the daemon itself (no external
 resources, nothing leaves the machine). It shows the live state, the playing
-spectrum, the applied EQ response, and has a bypass toggle. Close the tab any
-time; the daemon keeps adapting.
+spectrum, the applied EQ response, and has a bypass toggle. From a terminal the
+daemon keeps adapting when you close the tab; the macOS app (or `--quit-on-close`)
+quits when its window closes.
 
 Start EasyEffects first (service mode is fine). The daemon writes the preset
 `~/.local/share/easyeffects/output/leungo.json` and loads it whenever a
 new track is classified. The preset carries both the EasyEffects 7 (`equalizer`)
 and 8 (`equalizer#0`) setting keys, so one file works across versions.
+
 
 ## Config
 
@@ -298,14 +240,16 @@ open = "app"        # app: its own window, browser: a tab, none: print the addre
 
 [standalone]        # macOS only
 input_device = "BlackHole"
-output_device = ""  # your real output; must not be the loopback device
+output_device = ""  # empty follows the system; a name pins that device
 latency_ms = 60
+manage_output = true  # point the system output at the loopback device while running
 ```
 
 `gui.open = "app"` uses a Chromium-family browser (Chrome, Chromium, Brave,
 Edge) in app mode when one is installed: a window with no tabs or address
 bar. It is still a browser process underneath, so it uses the browser's
-memory while open. Closing the window does not stop the daemon.
+memory while open. Started from the app bundle, closing the window quits Leungo.
+From a terminal the daemon keeps running unless you pass `--quit-on-close`.
 
 Tuning tips:
 
@@ -334,6 +278,11 @@ Tuning tips:
   fit prototypes to your own listening. It prints the mean confidence before
   and after. The number shows how typical a track is of its group, not whether
   the group is right.
+
+Devices picked in the dashboard are stored in `devices.json`, and the Simple/Advanced
+choice in `ui.json`, next to `config.toml`, so the file you edit by hand is never
+rewritten.
+
 
 ## Tuning presets
 
@@ -401,6 +350,35 @@ The capture and applier traits (`SampleSource`, `EqApplier`) are the platform
 seams: a Windows build swaps in a WASAPI loopback source and an Equalizer APO
 writer without touching the engine.
 
+
+## macOS from source
+
+```sh
+xcode-select --install                    # compiler and linker
+curl https://sh.rustup.rs -sSf | sh       # Rust 1.85 or newer
+git clone https://github.com/rizqyep/leungo.git
+cd leungo
+cargo build --release -p leungo-cli
+target/release/leungo gui
+```
+
+`leungo setup` installs the BlackHole driver from the terminal, `leungo devices`
+lists audio devices and `leungo restore` puts the system output back after an unclean
+exit. Set `standalone.manage_output = false` to switch the output yourself.
+
+On macOS leungo captures a virtual loopback device (BlackHole), equalizes in process
+and plays the result to your real output. Track information comes from polling Spotify
+and Music with AppleScript.
+
+macOS limitations:
+
+- The processing adds about the configured `latency_ms` of delay.
+- Only 32-bit float devices are supported, which is what CoreAudio normally offers.
+- The two devices run on separate clocks. A small controller absorbs the difference; it
+  is unit-tested against simulated drift, so occasional clicks are possible.
+- A config from an earlier build lives under `~/Library/Application Support/leungo`.
+
+
 ## Known limitations
 
 - 2048-point FFT at 48 kHz puts the effective analysis floor at ~50 Hz; deeper
@@ -415,15 +393,17 @@ writer without touching the engine.
   a later upgrade (see roadmap).
 - WAV analysis expects 48 kHz; resample other rates first.
 
+
 ## Roadmap
 
 1. Windows: WASAPI loopback capture + Equalizer APO config writer
-2. macOS: verify the standalone engine on hardware, add a menu-bar item and a signed app bundle
+2. macOS: a menu-bar item and a signed, notarized app bundle
 3. ML archetype classifier (ONNX runtime, distilled model)
 4. Library pre-scan cache for instant presets on known tracks
 5. Native window front end (egui) beside the web GUI; needs GUI dev headers
    (wayland-client, libxkbcommon, gtk3) that are not currently installed here
 6. Optional standalone Linux mode: PipeWire virtual sink with in-process DSP
+
 
 ## Development
 

@@ -52,16 +52,24 @@ pub fn setup(cfg: &mut Config, _stop: Arc<AtomicBool>) -> Result<Platform> {
 #[cfg(target_os = "macos")]
 pub fn setup(cfg: &mut Config, stop: Arc<AtomicBool>) -> Result<Platform> {
     use leungo_standalone::io;
-    let running = io::start(
-        io::Settings {
-            input_device: cfg.standalone.input_device.clone(),
-            output_device: cfg.standalone.output_device.clone(),
-            latency_ms: cfg.standalone.latency_ms,
-            freqs: cfg.eq.frequencies.clone(),
-            q: cfg.eq.q,
-        },
-        stop,
-    )?;
+    let settings = || io::Settings {
+        input_device: cfg.standalone.input_device.clone(),
+        output_device: cfg.standalone.output_device.clone(),
+        latency_ms: cfg.standalone.latency_ms,
+        freqs: cfg.eq.frequencies.clone(),
+        q: cfg.eq.q,
+    };
+    let mut attempt = 0;
+    let running = loop {
+        match io::start(settings(), stop.clone()) {
+            Ok(r) => break r,
+            Err(e) if attempt < 15 && format!("{e:#}").contains("no output device matching") => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(e) => return Err(e),
+        }
+    };
     tracing::info!(
         "capturing {} at {} Hz, playing to {} at {} Hz",
         running.input_name,

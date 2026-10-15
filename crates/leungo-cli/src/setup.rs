@@ -119,6 +119,19 @@ pub fn blocker(_loopback: &str, _wanted_output: &str) -> Option<Blocker> {
     None
 }
 
+#[cfg(target_os = "macos")]
+pub fn default_moved(loopback: &str, active: &str) -> bool {
+    match leungo_standalone::io::default_output_name() {
+        Some(d) => !any_matches(std::iter::once(d.as_str()), loopback) && d != active,
+        None => false,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn default_moved(_loopback: &str, _active: &str) -> bool {
+    false
+}
+
 /// A saved choice is either a device's exact name or a fragment of one, as
 /// `[standalone]` allows.
 pub fn is_known_device(names: &[String], choice: &str) -> bool {

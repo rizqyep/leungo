@@ -25,6 +25,46 @@ fn page_id() -> &'static str {
     })
 }
 
+const BYE_GRACE: Duration = Duration::from_secs(3);
+const SILENCE_LIMIT: Duration = Duration::from_secs(120);
+
+/// Browsers slow timers in hidden windows, so a window that merely stopped
+/// polling gets a long grace; a closed window says goodbye.
+pub struct Presence {
+    inner: Mutex<(Option<std::time::Instant>, Option<std::time::Instant>)>,
+}
+
+impl Presence {
+    fn new() -> Self {
+        Presence {
+            inner: Mutex::new((None, None)),
+        }
+    }
+
+    fn touch(&self) {
+        if let Ok(mut g) = self.inner.lock() {
+            *g = (Some(std::time::Instant::now()), None);
+        }
+    }
+
+    fn bye(&self) {
+        if let Ok(mut g) = self.inner.lock() {
+            g.1 = Some(std::time::Instant::now());
+        }
+    }
+
+    fn gone(&self) -> bool {
+        let Ok(g) = self.inner.lock() else {
+            return false;
+        };
+        match (g.0, g.1) {
+            (_, Some(bye)) => bye.elapsed() >= BYE_GRACE,
+            (Some(seen), None) => seen.elapsed() >= SILENCE_LIMIT,
+            _ => false,
+        }
+    }
+}
+
 pub struct GuiShared {
     pub status: Arc<Mutex<Status>>,
     pub spectrum: Arc<Mutex<Vec<(f64, f64)>>>,
@@ -34,6 +74,8 @@ pub struct GuiShared {
     pub now_playing: Option<leungo_players::NowPlayingHandle>,
     pub setup: Option<SetupShared>,
     pub devices: (String, String),
+    pub active: String,
+    pub presence: Arc<Presence>,
 }
 
 pub struct SetupShared {
@@ -67,6 +109,8 @@ fn wait_for_setup(
     devices: (&str, &str),
     blocker: crate::setup::Blocker,
     stop: &AtomicBool,
+    presence: &Arc<Presence>,
+    quit_on_close: bool,
 ) -> Result<()> {
     let driver = devices.0;
     let shared = GuiShared {
@@ -82,10 +126,16 @@ fn wait_for_setup(
             blocker,
         }),
         devices: (devices.0.to_string(), devices.1.to_string()),
+        active: devices.1.to_string(),
+        presence: presence.clone(),
     };
     let mut last_check = std::time::Instant::now();
     while !stop.load(Ordering::Relaxed) {
         serve_once(listener, &shared);
+        if quit_on_close && presence.gone() {
+            stop.store(true, Ordering::Relaxed);
+            break;
+        }
         if last_check.elapsed() >= Duration::from_secs(2) {
             last_check = std::time::Instant::now();
             if crate::setup::blocker(devices.0, devices.1).is_none() {
@@ -96,7 +146,7 @@ fn wait_for_setup(
     Ok(())
 }
 
-pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
+pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) -> Result<()> {
     cfg.validate()?;
     let gui_open = cfg.gui.open.clone();
     let mut cfg = cfg;
@@ -115,24 +165,54 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         cfg.standalone.output_device.clone(),
     );
     let listener = bind(port)?;
+    let presence = Arc::new(Presence::new());
     let url = format!("http://127.0.0.1:{port}");
     let mut already_open = false;
-    if let Some(blocker) = crate::setup::blocker(&devices.0, &devices.1) {
+    let wait = |blocker: crate::setup::Blocker, output: &str, opened: &mut bool| -> Result<()> {
         println!(
             "leungo GUI: {url}  (waiting for audio setup: {})",
             blocker.as_str()
         );
-        if open_browser {
+        if open_browser && !*opened {
             open_window(&url, &gui_open);
         }
-        already_open = true;
-        wait_for_setup(&listener, (&devices.0, &devices.1), blocker, &stop)?;
+        *opened = true;
+        wait_for_setup(
+            &listener,
+            (&devices.0, output),
+            blocker,
+            &stop,
+            &presence,
+            quit_on_close,
+        )
+    };
+
+    if !crate::setup::driver_present(&devices.0) {
+        wait(crate::setup::Blocker::Driver, &devices.1, &mut already_open)?;
+    }
+    if stop.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
+    let managed = cfg!(target_os = "macos") && cfg.standalone.manage_output;
+    let mut active = devices.1.clone();
+    let mut route = None;
+    if managed {
+        let (r, real) = crate::routing::Route::engage(&devices.0, &devices.1)?;
+        active = real.clone();
+        cfg.standalone.output_device = real;
+        route = Some(r);
+    } else if let Some(blocker) = crate::setup::blocker(&devices.0, &devices.1) {
+        wait(blocker, &devices.1, &mut already_open)?;
     }
     if stop.load(Ordering::Relaxed) {
         return Ok(());
     }
 
     let platform = crate::platform::setup(&mut cfg, stop.clone())?;
+    if let Some(r) = route.as_mut() {
+        r.activate()?;
+    }
     let mut engine = Engine::new(
         cfg,
         platform.source,
@@ -193,6 +273,8 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         now_playing,
         setup: None,
         devices,
+        active,
+        presence,
     };
 
     println!("leungo GUI: {url}  (ctrl-c to stop)");
@@ -204,9 +286,16 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
     let mut last_health = std::time::Instant::now();
     while !stop.load(Ordering::Relaxed) {
         serve_once(&listener, &shared);
+        if quit_on_close && shared.presence.gone() {
+            break;
+        }
         if last_health.elapsed() >= Duration::from_secs(2) {
             last_health = std::time::Instant::now();
-            if crate::setup::device_lost(&shared.devices.0, &shared.devices.1) {
+            let lost = crate::setup::device_lost(&shared.devices.0, &shared.active);
+            let moved = managed
+                && shared.devices.1.is_empty()
+                && crate::setup::default_moved(&shared.devices.0, &shared.active);
+            if lost || moved {
                 restart_soon();
             }
         }
@@ -333,7 +422,12 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
                 PAGE.as_bytes(),
             );
         }
+        ("POST", "/api/bye") => {
+            shared.presence.bye();
+            respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+        }
         ("GET", "/api/state") => {
+            shared.presence.touch();
             let body = serde_json::to_vec(&state_json(shared)).unwrap_or_default();
             respond(&mut stream, 200, "application/json", &body);
         }
@@ -344,6 +438,7 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
                 "outputs": choices.outputs,
                 "input": shared.devices.0,
                 "output": shared.devices.1,
+                "active": shared.active,
             });
             respond(
                 &mut stream,
@@ -364,7 +459,8 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
             }
             let valid = match (&input, &output) {
                 (Some(i), Some(o)) => {
-                    crate::setup::is_known_device(&choices.inputs, i) && choices.outputs.contains(o)
+                    crate::setup::is_known_device(&choices.inputs, i)
+                        && (o.is_empty() || choices.outputs.contains(o))
                 }
                 _ => false,
             };
@@ -380,6 +476,14 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
             } else {
                 respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
                 restart_soon();
+            }
+        }
+        ("POST", p) if p.starts_with("/api/mode/") => {
+            let mode = &p["/api/mode/".len()..];
+            if (mode == "simple" || mode == "advanced") && paths::save_ui_mode(mode).is_ok() {
+                respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+            } else {
+                respond(&mut stream, 400, "text/plain", b"unknown mode");
             }
         }
         ("POST", "/api/setup/install") => match &shared.setup {
@@ -552,6 +656,8 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "bandFreqs": BAND_FREQS.to_vec(),
         "setup": shared.setup.as_ref().map(setup_json),
         "page": page_id(),
+        "playingTo": shared.active,
+        "mode": paths::load_ui_mode(),
     })
 }
 

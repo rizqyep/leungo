@@ -10,3 +10,6 @@ pub mod resample;
 
 #[cfg(feature = "audio-io")]
 pub mod io;
+
+#[cfg(all(feature = "audio-io", target_os = "macos"))]
+pub mod route;

@@ -882,6 +882,7 @@ name = "leungo-standalone"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "coreaudio-sys",
  "cpal",
  "leungo-core",
  "leungo-dsp",
