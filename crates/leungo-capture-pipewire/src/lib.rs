@@ -1,3 +1,5 @@
+//! Linux only (empty on other platforms).
+//!
 //! System-audio capture through the PulseAudio compatibility API. Works on
 //! both PulseAudio and PipeWire (via pipewire-pulse) by recording the
 //! monitor of the default sink.
@@ -6,6 +8,8 @@
 //! audio *after* the EQ, so the analysis would measure its own correction.
 //! `pick_source` therefore taps the EasyEffects sink monitor (the signal
 //! before the EQ chain) whenever it exists.
+
+#![cfg(target_os = "linux")]
 
 use anyhow::{Context, Result, anyhow};
 use leungo_core::{CaptureCfg, SampleSource, SourceEvent};

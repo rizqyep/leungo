@@ -7,7 +7,8 @@ pub mod offline;
 pub mod paths;
 
 pub use config::{
-    AnalysisCfg, ApplierCfg, CaptureCfg, Config, EqCfg, GuiCfg, Preset, TargetsCfg, target_delta,
+    AnalysisCfg, ApplierCfg, CaptureCfg, Config, EqCfg, GuiCfg, Preset, StandaloneCfg, TargetsCfg,
+    target_delta,
 };
 pub use engine::{Engine, Status};
 

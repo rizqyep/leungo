@@ -6,7 +6,8 @@ members = [
     "crates/leungo-analysis",
     "crates/leungo-capture-pipewire",
     "crates/leungo-applier-ee",
-    "crates/leungo-mpris",
+    "crates/leungo-players",
+    "crates/leungo-standalone",
     "crates/leungo-core",
     "crates/leungo-cli",
 ]
@@ -22,7 +23,8 @@ leungo-eq = { path = "crates/leungo-eq" }
 leungo-analysis = { path = "crates/leungo-analysis" }
 leungo-capture-pipewire = { path = "crates/leungo-capture-pipewire" }
 leungo-applier-ee = { path = "crates/leungo-applier-ee" }
-leungo-mpris = { path = "crates/leungo-mpris" }
+leungo-players = { path = "crates/leungo-players" }
+leungo-standalone = { path = "crates/leungo-standalone" }
 leungo-core = { path = "crates/leungo-core" }
 libpulse-binding = "2"
 realfft = "3"

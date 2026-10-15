@@ -2,11 +2,10 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
-use leungo_applier_ee::EasyEffectsApplier;
-use leungo_capture_pipewire::PulseCapture;
 use leungo_core::{Engine, Status, paths};
 use leungo_eq::BAND_FREQS;
 mod gui;
+mod platform;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -66,6 +65,8 @@ enum Cmd {
     Analyze { file: PathBuf },
     /// Fit archetype prototypes to the tracks you have listened to.
     Fit,
+    /// List audio devices (macOS standalone engine).
+    Devices,
     /// Print the config file path.
     ConfigPath,
 }
@@ -90,6 +91,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Cmd::Gui { port, no_open } => gui(port, no_open),
         Cmd::Status => status(),
         Cmd::MonitorMpris => monitor_mpris(),
+        Cmd::Devices => platform::print_devices(),
         Cmd::Tuning { name } => tuning(name.as_deref()),
         Cmd::Sound {
             bass,
@@ -143,23 +145,13 @@ fn run() -> Result<()> {
             })?;
     }
 
-    let capture = PulseCapture::new(&cfg.capture)?;
-    let applier = EasyEffectsApplier::new(&cfg.applier);
-    let use_mpris = cfg.analysis.use_mpris;
-    let mut engine = Engine::new(
-        cfg,
-        Box::new(capture),
-        Box::new(applier),
-        status,
-        stop.clone(),
-    );
+    let mut cfg = cfg;
+    let platform = platform::setup(&mut cfg, stop.clone())?;
+    let mut engine = Engine::new(cfg, platform.source, platform.applier, status, stop.clone());
     engine.set_tuning_path(paths::tuning_path());
     engine.set_signature_path(paths::signature_path());
-    if use_mpris {
-        match leungo_mpris::spawn() {
-            Ok(rx) => engine.set_track_events(rx),
-            Err(e) => tracing::warn!("mpris monitor unavailable: {e:#}"),
-        }
+    if let Some(rx) = platform.track_events {
+        engine.set_track_events(rx);
     }
     engine.set_track_log(paths::track_log_path());
     if let Some(c) = paths::load_fitted_classifier() {
@@ -173,7 +165,7 @@ fn run() -> Result<()> {
 }
 
 fn monitor_mpris() -> Result<()> {
-    let rx = leungo_mpris::spawn()?;
+    let rx = leungo_players::spawn()?;
     println!("watching MPRIS players for track changes; ctrl-c to stop");
     for id in rx {
         println!("track changed: {id}");

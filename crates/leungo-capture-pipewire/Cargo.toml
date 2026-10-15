@@ -5,6 +5,10 @@ edition.workspace = true
 
 [dependencies]
 leungo-core = { workspace = true }
-libpulse-binding = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+
+# PulseAudio is only available (and only needed) on Linux, so the crate is an
+# empty library elsewhere and other platforms need no libpulse.
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-binding = { workspace = true }

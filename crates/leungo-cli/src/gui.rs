@@ -3,8 +3,6 @@
 //! every 200 ms; bypass is a POST that moves the engine's flag file.
 
 use anyhow::{Context, Result};
-use leungo_applier_ee::EasyEffectsApplier;
-use leungo_capture_pipewire::PulseCapture;
 use leungo_core::{Config, Engine, Status, paths};
 use leungo_eq::BAND_FREQS;
 use serde_json::json;
@@ -23,11 +21,13 @@ pub struct GuiShared {
     pub bypass_flag: PathBuf,
     pub tuning_flag: PathBuf,
     pub sound_file: PathBuf,
-    pub now_playing: Option<leungo_mpris::NowPlayingHandle>,
+    pub now_playing: Option<leungo_players::NowPlayingHandle>,
 }
 
 pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
     cfg.validate()?;
+    let gui_open = cfg.gui.open.clone();
+    let mut cfg = cfg;
     let status = Arc::new(Mutex::new(Status::default()));
     let spectrum = Arc::new(Mutex::new(Vec::new()));
     let stop = Arc::new(AtomicBool::new(false));
@@ -38,13 +38,11 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
             .context("install ctrl-c handler")?;
     }
 
-    let capture = PulseCapture::new(&cfg.capture)?;
-    let applier = EasyEffectsApplier::new(&cfg.applier);
-    let use_mpris = cfg.analysis.use_mpris;
+    let platform = crate::platform::setup(&mut cfg, stop.clone())?;
     let mut engine = Engine::new(
         cfg,
-        Box::new(capture),
-        Box::new(applier),
+        platform.source,
+        platform.applier,
         status.clone(),
         stop.clone(),
     );
@@ -55,16 +53,10 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
     }
     engine.set_tuning_path(paths::tuning_path());
     engine.set_signature_path(paths::signature_path());
-    let mut now_playing = None;
-    if use_mpris {
-        match leungo_mpris::spawn_with_now_playing() {
-            Ok((rx, handle)) => {
-                engine.set_track_events(rx);
-                now_playing = Some(handle);
-            }
-            Err(e) => tracing::warn!("mpris monitor unavailable: {e:#}"),
-        }
+    if let Some(rx) = platform.track_events {
+        engine.set_track_events(rx);
     }
+    let now_playing = platform.now_playing;
 
     let engine_handle = std::thread::Builder::new()
         .name("ae-engine".into())
@@ -114,12 +106,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
     println!("leungo GUI: {url}  (ctrl-c to stop)");
 
     if open_browser {
-        let opener = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
-        let _ = std::process::Command::new(opener).arg(&url).spawn();
+        open_window(&url, &gui_open);
     }
 
     while !stop.load(Ordering::Relaxed) {
@@ -153,6 +140,72 @@ fn respond(stream: &mut TcpStream, code: u16, ctype: &str, body: &[u8]) {
     let _ = stream.write_all(body);
     let _ = stream.flush();
     let _ = stream.shutdown(std::net::Shutdown::Both);
+}
+
+/// Chromium-family browsers that support `--app=URL`, in order of preference.
+const APP_BROWSERS: [&str; 6] = [
+    "google-chrome-stable",
+    "google-chrome",
+    "chromium",
+    "chromium-browser",
+    "brave-browser",
+    "microsoft-edge",
+];
+
+fn pick_app_browser(exists: impl Fn(&str) -> bool) -> Option<&'static str> {
+    APP_BROWSERS.iter().copied().find(|b| exists(b))
+}
+
+fn on_path(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()))
+        .unwrap_or(false)
+}
+
+fn spawn_quiet(cmd: &mut std::process::Command) -> bool {
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
+}
+
+/// Shows the dashboard. `app` mode opens a chromeless window (no tabs, no
+/// address bar) so it feels like its own program; anything that fails falls
+/// back to the default browser, and finally to just printing the address.
+fn open_window(url: &str, mode: &str) {
+    if mode == "none" {
+        return;
+    }
+    if mode == "app" {
+        #[cfg(target_os = "macos")]
+        {
+            let chrome = std::path::Path::new("/Applications/Google Chrome.app");
+            if chrome.exists()
+                && spawn_quiet(
+                    std::process::Command::new("open")
+                        .args(["-na", "Google Chrome", "--args"])
+                        .arg(format!("--app={url}")),
+                )
+            {
+                return;
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        if let Some(bin) = pick_app_browser(on_path)
+            && spawn_quiet(std::process::Command::new(bin).arg(format!("--app={url}")))
+        {
+            return;
+        }
+    }
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    if !spawn_quiet(std::process::Command::new(opener).arg(url)) {
+        println!("open {url} in a browser");
+    }
 }
 
 fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
@@ -278,7 +331,7 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use super::sound_json;
+    use super::{pick_app_browser, sound_json};
 
     #[test]
     fn builds_json_from_a_query() {
@@ -296,5 +349,19 @@ mod tests {
         assert!(sound_json("bass=NaN").is_none());
         assert!(sound_json("bass").is_none());
         assert_eq!(sound_json("").unwrap(), "{}");
+    }
+
+    #[test]
+    fn picks_the_first_installed_chromium_browser() {
+        assert_eq!(
+            pick_app_browser(|b| b == "chromium" || b == "brave-browser"),
+            Some("chromium")
+        );
+        assert_eq!(pick_app_browser(|_| false), None);
+        assert_eq!(
+            pick_app_browser(|_| true),
+            Some("google-chrome-stable"),
+            "preference order"
+        );
     }
 }

@@ -1,9 +1,11 @@
 [package]
-name = "leungo-mpris"
+name = "leungo-players"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-zbus = "5"
 anyhow = { workspace = true }
 tracing = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"

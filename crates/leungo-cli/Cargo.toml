@@ -12,9 +12,7 @@ leungo-core = { workspace = true }
 leungo-dsp = { workspace = true }
 leungo-eq = { workspace = true }
 leungo-analysis = { workspace = true }
-leungo-capture-pipewire = { workspace = true }
-leungo-applier-ee = { workspace = true }
-leungo-mpris = { workspace = true }
+leungo-players = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
@@ -22,3 +20,10 @@ hound = { workspace = true }
 ctrlc = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+leungo-capture-pipewire = { workspace = true }
+leungo-applier-ee = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+leungo-standalone = { workspace = true, features = ["audio-io"] }

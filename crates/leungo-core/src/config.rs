@@ -58,6 +58,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tuning: Option<Preset>,
     pub capture: CaptureCfg,
+    pub standalone: StandaloneCfg,
     pub analysis: AnalysisCfg,
     pub eq: EqCfg,
     pub targets: TargetsCfg,
@@ -107,6 +108,30 @@ impl Default for CaptureCfg {
             rate: 48_000,
             channels: 2,
             source: "@DEFAULT_MONITOR@".into(),
+        }
+    }
+}
+
+/// Settings for the standalone (no EasyEffects) engine used on macOS.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StandaloneCfg {
+    /// Part of the loopback device's name. Set the system output to it.
+    pub input_device: String,
+    /// Part of the real output device's name; empty uses the system default,
+    /// which must not be the loopback device.
+    pub output_device: String,
+    /// Output queue length, milliseconds. Lower is tighter lip sync, higher
+    /// is safer against dropouts.
+    pub latency_ms: u32,
+}
+
+impl Default for StandaloneCfg {
+    fn default() -> Self {
+        Self {
+            input_device: "BlackHole".into(),
+            output_device: String::new(),
+            latency_ms: 60,
         }
     }
 }
@@ -274,11 +299,19 @@ impl Default for ApplierCfg {
 #[serde(default)]
 pub struct GuiCfg {
     pub port: u16,
+    /// How the dashboard is shown when the daemon starts: `app` (its own
+    /// window, no tabs or address bar, using a Chromium-family browser if one
+    /// is installed), `browser` (a normal tab in the default browser) or
+    /// `none` (print the address only).
+    pub open: String,
 }
 
 impl Default for GuiCfg {
     fn default() -> Self {
-        Self { port: 8431 }
+        Self {
+            port: 8431,
+            open: "app".into(),
+        }
     }
 }
 

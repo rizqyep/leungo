@@ -287,7 +287,7 @@ crates/
   leungo-analysis          FFT spectrum, features, track detector, classifier
   leungo-core              config, engine state machine, traits, offline analysis
   leungo-capture-pipewire  monitor capture via the PulseAudio API
-  leungo-mpris             track changes and now-playing from MPRIS players
+  leungo-players             track changes and now-playing from MPRIS players
   leungo-applier-ee        EasyEffects preset writer/loader + bypass
   leungo-cli               the leungo binary
 ```

@@ -1,0 +1,16 @@
+[package]
+name = "leungo-standalone"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Real audio devices through cpal. Off by default so the pure logic (and its
+# tests) build anywhere; the macOS build of the CLI turns it on.
+audio-io = ["dep:cpal"]
+
+[dependencies]
+leungo-core = { workspace = true }
+leungo-dsp = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+cpal = { version = "0.15", optional = true }

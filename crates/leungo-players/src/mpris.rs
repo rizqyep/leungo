@@ -8,6 +8,7 @@
 //! the first signature, which the engine only records. Every later change is
 //! sent, so the first skip after launch is never lost.
 
+use crate::{NowPlaying, NowPlayingHandle};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -33,17 +34,6 @@ fn track_signature(metadata: &HashMap<String, Value>) -> Option<String> {
         _ => None,
     }
 }
-
-/// What a player says it is playing, for display.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct NowPlaying {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-}
-
-/// Shared with the UI; the monitor keeps it current.
-pub type NowPlayingHandle = Arc<Mutex<Option<NowPlaying>>>;
 
 fn now_playing(metadata: &HashMap<String, Value>) -> NowPlaying {
     let get = |k: &str| metadata.get(k).and_then(as_string).unwrap_or_default();
@@ -96,10 +86,6 @@ fn as_string(value: &Value) -> Option<String> {
 
 /// Spawns the monitor thread. The thread lives for the process (the daemon
 /// owns it), so no stop flag is needed; if the consumer disconnects, it exits.
-pub fn spawn() -> Result<Receiver<String>> {
-    spawn_with_now_playing().map(|(rx, _)| rx)
-}
-
 /// Like `spawn`, and also returns a handle holding the latest title/artist.
 pub fn spawn_with_now_playing() -> Result<(Receiver<String>, NowPlayingHandle)> {
     let (tx, rx) = channel::<String>();
