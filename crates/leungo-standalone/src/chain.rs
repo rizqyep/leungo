@@ -1,7 +1,11 @@
-//! The 8-band filter chain for interleaved stereo, with gain changes
-//! smoothed so a new curve fades in instead of clicking.
+//! The filter chain for interleaved stereo: song bands, device filters and
+//! a preamp, with every gain change smoothed so a new curve fades in.
 
 use leungo_dsp::{BiquadState, Coeffs, peaking_coeffs};
+use leungo_eq::device::{Filter, coeffs};
+
+/// Largest gain change per `process` call, dB.
+const MAX_STEP_DB: f64 = 0.25;
 
 pub struct EqChain {
     freqs: Vec<f64>,
@@ -11,8 +15,12 @@ pub struct EqChain {
     target: Vec<f64>,
     coeffs: Vec<Coeffs>,
     state: Vec<[BiquadState; 2]>,
-    /// Largest gain change per band per `process` call, dB.
-    max_step_db: f64,
+    device: Vec<Filter>,
+    device_current: Vec<f64>,
+    device_coeffs: Vec<Coeffs>,
+    device_state: Vec<[BiquadState; 2]>,
+    preamp_db: f64,
+    preamp_target_db: f64,
 }
 
 impl EqChain {
@@ -29,7 +37,12 @@ impl EqChain {
                 .map(|&f| peaking_coeffs(f, 0.0, q, fs))
                 .collect(),
             state: vec![[BiquadState::default(); 2]; n],
-            max_step_db: 0.25,
+            device: Vec::new(),
+            device_current: Vec::new(),
+            device_coeffs: Vec::new(),
+            device_state: Vec::new(),
+            preamp_db: 0.0,
+            preamp_target_db: 0.0,
         }
     }
 
@@ -37,46 +50,104 @@ impl EqChain {
     pub fn set_target(&mut self, gains: &[f64]) {
         if gains.len() == self.target.len() {
             for (t, g) in self.target.iter_mut().zip(gains) {
-                *t = if g.is_finite() {
-                    g.clamp(-18.0, 18.0)
-                } else {
-                    0.0
-                };
+                *t = sane_db(*g);
             }
         }
+    }
+
+    /// Sets the device filters. Same shape (kinds, fc, Q) just moves the
+    /// gains; a new shape starts the new filters from 0 dB.
+    pub fn set_device(&mut self, filters: &[Filter]) {
+        let same_shape = filters.len() == self.device.len()
+            && filters
+                .iter()
+                .zip(&self.device)
+                .all(|(a, b)| a.kind == b.kind && a.fc == b.fc && a.q == b.q);
+        if !same_shape {
+            self.device_current = vec![0.0; filters.len()];
+            self.device_state = vec![[BiquadState::default(); 2]; filters.len()];
+            self.device_coeffs = filters
+                .iter()
+                .map(|f| coeffs(&Filter { gain_db: 0.0, ..*f }, self.fs))
+                .collect();
+        }
+        self.device = filters
+            .iter()
+            .map(|f| Filter {
+                gain_db: sane_db(f.gain_db),
+                ..*f
+            })
+            .collect();
+    }
+
+    pub fn set_preamp(&mut self, db: f64) {
+        self.preamp_target_db = sane_db(db).min(0.0);
     }
 
     pub fn current(&self) -> &[f64] {
         &self.current
     }
 
-    /// True once every band has settled at (about) zero gain.
+    /// True once everything has settled at (about) 0 dB.
     pub fn is_flat(&self) -> bool {
-        self.current.iter().all(|g| g.abs() < 1e-6) && self.target.iter().all(|g| g.abs() < 1e-6)
+        let zero = |v: &[f64]| v.iter().all(|g| g.abs() < 1e-6);
+        zero(&self.current)
+            && zero(&self.target)
+            && zero(&self.device_current)
+            && self.device.iter().all(|f| f.gain_db.abs() < 1e-6)
+            && self.preamp_db.abs() < 1e-6
+            && self.preamp_target_db.abs() < 1e-6
     }
 
     /// Filters interleaved L/R samples in place. Call once per block of a
-    /// few milliseconds: the gains advance by at most `max_step_db` per call.
+    /// few milliseconds: gains move by at most `MAX_STEP_DB` per call.
     pub fn process(&mut self, io: &mut [f32]) {
         for i in 0..self.current.len() {
-            let d = (self.target[i] - self.current[i]).clamp(-self.max_step_db, self.max_step_db);
-            if d != 0.0 {
-                self.current[i] += d;
+            if step(&mut self.current[i], self.target[i]) {
                 self.coeffs[i] = peaking_coeffs(self.freqs[i], self.current[i], self.q, self.fs);
             }
         }
+        for i in 0..self.device.len() {
+            if step(&mut self.device_current[i], self.device[i].gain_db) {
+                let f = Filter {
+                    gain_db: self.device_current[i],
+                    ..self.device[i]
+                };
+                self.device_coeffs[i] = coeffs(&f, self.fs);
+            }
+        }
+        step(&mut self.preamp_db, self.preamp_target_db);
         if self.is_flat() {
             return;
         }
+        let pre = 10f64.powf(self.preamp_db / 20.0);
         for f in 0..io.len() / 2 {
             for c in 0..2 {
-                let mut x = io[f * 2 + c] as f64;
-                for (coef, st) in self.coeffs.iter().zip(self.state.iter_mut()) {
+                let mut x = io[f * 2 + c] as f64 * pre;
+                for (coef, st) in self.device_coeffs.iter().zip(&mut self.device_state) {
+                    x = st[c].process(coef, x);
+                }
+                for (coef, st) in self.coeffs.iter().zip(&mut self.state) {
                     x = st[c].process(coef, x);
                 }
                 io[f * 2 + c] = x as f32;
             }
         }
+    }
+}
+
+/// Moves `cur` toward `target` by at most one step. True if it moved.
+fn step(cur: &mut f64, target: f64) -> bool {
+    let d = (target - *cur).clamp(-MAX_STEP_DB, MAX_STEP_DB);
+    *cur += d;
+    d != 0.0
+}
+
+fn sane_db(g: f64) -> f64 {
+    if g.is_finite() {
+        g.clamp(-18.0, 18.0)
+    } else {
+        0.0
     }
 }
 
@@ -164,6 +235,26 @@ mod tests {
         c.set_target(&[0.0; 8]);
         run(&mut c, 500.0, 200);
         assert!(c.is_flat(), "{:?}", c.current());
+    }
+
+    #[test]
+    fn device_filters_and_preamp_are_applied() {
+        use leungo_eq::device::Kind;
+        let mut c = EqChain::new(&FREQS, 1.41, FS);
+        c.set_device(&[Filter {
+            kind: Kind::Peak,
+            fc: 1000.0,
+            gain_db: 6.0,
+            q: 1.0,
+        }]);
+        c.set_preamp(-6.0);
+        let out = run(&mut c, 1000.0, 400);
+        let gain_db = 20.0 * (rms(&out) / rms(&sine(1000.0, 2048, 0.3))).log10();
+        assert!(gain_db.abs() < 0.3, "{gain_db}");
+        c.set_device(&[]);
+        c.set_preamp(0.0);
+        run(&mut c, 1000.0, 200);
+        assert!(c.is_flat());
     }
 
     #[test]

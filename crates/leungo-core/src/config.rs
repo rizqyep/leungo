@@ -222,6 +222,9 @@ pub struct EqCfg {
     /// Fixed correction of your headphones/IEMs at `frequencies`, applied in
     /// full (it is a measurement, not a guess). Made by `leungo device`.
     pub device_curve: Vec<f64>,
+    /// Device correction as free filters, made by `leungo device` from
+    /// measurements. Run as their own stage, scaled by `device_strength`.
+    pub device_filters: Vec<leungo_eq::device::Filter>,
     /// Deviations from a track's own spectral tilt smaller than this are left
     /// alone, and larger ones are corrected only by the excess.
     pub deadzone_db: f64,
@@ -231,6 +234,10 @@ pub struct EqCfg {
     /// fully percussive material, whose spectrum is normally higher at both
     /// ends. 0 disables, 1 removes the correction there.
     pub percussive_relief: f64,
+    /// Judge drums per band instead of per track: a band's cut is eased by
+    /// how much of that band is drum hits (kick punch stays, a boomy bass
+    /// line still gets cut). Off until A/B'd.
+    pub per_band_punch: bool,
     /// Fraction of `device_curve` that is applied, 0..=1. Below 1 keeps some
     /// of the headphone's own character instead of neutralizing it fully.
     pub device_strength: f64,
@@ -248,9 +255,11 @@ impl Default for EqCfg {
             strength: 0.5,
             base_curve: vec![0.0; leungo_eq::BAND_FREQS.len()],
             device_curve: vec![0.0; leungo_eq::BAND_FREQS.len()],
+            device_filters: Vec::new(),
             deadzone_db: 2.0,
             residual_cap_db: 6.0,
             percussive_relief: 0.5,
+            per_band_punch: false,
             device_strength: 0.6,
             signature: leungo_eq::Signature::default(),
         }

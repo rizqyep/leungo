@@ -15,6 +15,21 @@ pub struct Measurement {
     pub reliability: f64,
     /// Transient energy fraction (see `BandTracker::transient_fraction`).
     pub transient: f64,
+    /// Codec lowpass of the stream, when there is one.
+    pub edge_hz: Option<f64>,
+    /// Per point, share of the power that is drum hits (see `hpss`).
+    pub percussive: Option<Vec<f64>>,
+}
+
+/// Lowest band the song layer corrects. The fine bass path measures to
+/// 25 Hz, but most masters roll off below 40 Hz on purpose.
+const LO_HZ: f64 = 40.0;
+/// Highest band corrected; lower when the stream's own lowpass is below it.
+const HI_HZ: f64 = 10_000.0;
+
+/// Treble limit for this track: a third of an octave under the codec cut.
+fn hi_hz(edge: Option<f64>) -> f64 {
+    edge.map_or(HI_HZ, |e| (e / 2f64.powf(1.0 / 3.0)).min(HI_HZ))
 }
 
 /// Measures the analyzer's current content. Falls back to the plain
@@ -29,12 +44,16 @@ pub fn measure(cfg: &Config, analyzer: &SpectrumAnalyzer, points: &[f64]) -> Mea
             shape,
             reliability: t.reliability(window).unwrap_or(0.0),
             transient: t.transient_fraction(window).unwrap_or(0.0),
+            edge_hz: analyzer.bandwidth_edge(),
+            percussive: analyzer.percussive_share(),
         };
     }
     Measurement {
         shape: third_octave_levels(analyzer, points),
         reliability: 0.0,
         transient: 0.0,
+        edge_hz: analyzer.bandwidth_edge(),
+        percussive: analyzer.percussive_share(),
     }
 }
 
@@ -42,6 +61,12 @@ pub fn measure(cfg: &Config, analyzer: &SpectrumAnalyzer, points: &[f64]) -> Mea
 /// against real music yet; the value is logged per track so they can be.
 fn percussiveness(transient: f64) -> f64 {
     ((transient - 0.15) / (0.45 - 0.15)).clamp(0.0, 1.0)
+}
+
+/// Maps a band's drum share to 0..=1: mostly tones gives 0, mostly hits 1.
+/// Ends *unverified* on real music; the shares are logged per track.
+fn punch(share: f64) -> f64 {
+    ((share - 0.3) / (0.7 - 0.3)).clamp(0.0, 1.0)
 }
 
 /// 1 at the bass (<=125 Hz) and treble (>=6 kHz) ends, 0 through the mids,
@@ -69,16 +94,29 @@ pub fn solve_gains(
         &meas.shape,
         cfg.eq.deadzone_db,
         cfg.eq.residual_cap_db,
-        50.0,
-        10_000.0,
+        LO_HZ,
+        hi_hz(meas.edge_hz),
     );
     // Percussive material is expected to sit higher at both ends, so its
     // bass and treble deviations are corrected less. This scales the
     // correction rather than widening the dead zone: a large bass bump is
     // above the cap either way and a wider dead zone would change nothing.
-    let relief = cfg.eq.percussive_relief.clamp(0.0, 1.0) * percussiveness(meas.transient);
-    for (v, &f) in shaped.iter_mut().zip(points.iter()) {
-        *v *= 1.0 - relief * edge_weight(f);
+    let relief = cfg.eq.percussive_relief.clamp(0.0, 1.0);
+    match meas.percussive.as_deref() {
+        Some(share) if cfg.eq.per_band_punch && share.len() == shaped.len() => {
+            // bumps only (they get cut); a dip can still be lifted
+            for (v, &p) in shaped.iter_mut().zip(share) {
+                if *v > 0.0 {
+                    *v *= 1.0 - relief * punch(p);
+                }
+            }
+        }
+        _ => {
+            let relief = relief * percussiveness(meas.transient);
+            for (v, &f) in shaped.iter_mut().zip(points.iter()) {
+                *v *= 1.0 - relief * edge_weight(f);
+            }
+        }
     }
     let strength = cfg.eq.strength.clamp(0.0, 1.0) * (0.5 + 0.5 * meas.reliability);
     let song: Vec<f64> = solver
@@ -93,6 +131,29 @@ pub fn solve_gains(
         .zip(&sig)
         .map(|((s, d), g)| (s + device * d + g).clamp(-cfg.eq.clamp_db, cfg.eq.clamp_db))
         .collect()
+}
+
+/// Song gains plus the device stage, with a preamp so the peak never
+/// goes above 0 dB.
+pub fn output(cfg: &Config, gains: &[f64], fs: f64) -> crate::EqOutput {
+    use leungo_eq::device::{Filter, peak_gain_db, peaks};
+    let strength = cfg.eq.device_strength.clamp(0.0, 1.0);
+    let device: Vec<Filter> = cfg
+        .eq
+        .device_filters
+        .iter()
+        .map(|f| Filter {
+            gain_db: f.gain_db * strength,
+            ..*f
+        })
+        .collect();
+    let mut all = peaks(&cfg.eq.frequencies, gains, cfg.eq.q);
+    all.extend_from_slice(&device);
+    crate::EqOutput {
+        gains: gains.to_vec(),
+        device,
+        preamp_db: -peak_gain_db(&all, fs).max(0.0),
+    }
 }
 
 /// The signature fitted onto the eight bands, with its largest gain shifted
@@ -152,7 +213,12 @@ pub fn analyze_samples(samples: &[f64], fs: f64, cfg: &Config) -> Result<Offline
         interleaved.push(s as f32);
         interleaved.push(s as f32);
     }
-    let frames = analyzer.push_interleaved(&interleaved, 2, cfg.analysis.silence_threshold_db);
+    // Fed in capture-sized chunks: one huge push makes every hop move the
+    // whole remaining buffer.
+    let frames: Vec<_> = interleaved
+        .chunks(2 * 1024)
+        .flat_map(|c| analyzer.push_interleaved(c, 2, cfg.analysis.silence_threshold_db))
+        .collect();
 
     let mut sq = 0.0;
     let mut peak = 0.0f64;
@@ -232,6 +298,8 @@ mod tests {
                 shape: shape.clone(),
                 reliability: 1.0,
                 transient,
+                edge_hz: None,
+                percussive: None,
             };
             solve_gains(&cfg, &s, &m, leungo_eq::Archetype::Neutral)
         };
@@ -265,6 +333,28 @@ mod tests {
     }
 
     #[test]
+    fn output_scales_device_filters_and_keeps_the_peak_at_zero() {
+        use leungo_eq::device::{Filter, Kind, peak_gain_db, peaks};
+        let mut cfg = Config::default();
+        cfg.eq.device_strength = 0.5;
+        cfg.eq.device_filters = vec![Filter {
+            kind: Kind::Peak,
+            fc: 3000.0,
+            gain_db: 8.0,
+            q: 1.0,
+        }];
+        let gains = vec![0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0];
+        let out = output(&cfg, &gains, 48_000.0);
+        assert_eq!(out.device[0].gain_db, 4.0);
+        let mut all = peaks(&cfg.eq.frequencies, &gains, cfg.eq.q);
+        all.extend_from_slice(&out.device);
+        let peak = peak_gain_db(&all, 48_000.0) + out.preamp_db;
+        assert!(peak.abs() < 1e-9, "{peak}");
+        let cut = output(&cfg, &[-3.0; 8], 48_000.0);
+        assert!(cut.preamp_db <= 0.0);
+    }
+
+    #[test]
     fn device_strength_scales_the_device_curve() {
         let mut cfg = Config::default();
         cfg.eq.device_curve = vec![-6.0; 8];
@@ -273,12 +363,48 @@ mod tests {
             shape: vec![0.0; s.points.len()],
             reliability: 1.0,
             transient: 0.0,
+            edge_hz: None,
+            percussive: None,
         };
         cfg.eq.device_strength = 1.0;
         let full = solve_gains(&cfg, &s, &m, leungo_eq::Archetype::Neutral);
         cfg.eq.device_strength = 0.5;
         let half = solve_gains(&cfg, &s, &m, leungo_eq::Archetype::Neutral);
         assert!((full[4] - 2.0 * half[4]).abs() < 0.05, "{full:?} {half:?}");
+    }
+
+    #[test]
+    fn per_band_punch_eases_drum_bumps_but_not_tonal_ones() {
+        let mut cfg = Config::default();
+        cfg.eq.per_band_punch = true;
+        let s = solver(&cfg);
+        let shape = bass_bump(&s.points);
+        let run = |share: f64| {
+            let m = Measurement {
+                shape: shape.clone(),
+                reliability: 1.0,
+                transient: 0.0,
+                edge_hz: None,
+                percussive: Some(vec![share; s.points.len()]),
+            };
+            solve_gains(&cfg, &s, &m, leungo_eq::Archetype::Neutral)
+        };
+        let (tonal, drums) = (run(0.1), run(0.9));
+        assert!(tonal[0] < -0.5, "a tonal bass bump is cut: {tonal:?}");
+        assert!(
+            drums[0] > tonal[0] + 0.3,
+            "{:.2} vs {:.2}",
+            drums[0],
+            tonal[0]
+        );
+    }
+
+    #[test]
+    fn treble_limit_follows_the_codec_cut() {
+        assert_eq!(hi_hz(None), HI_HZ);
+        assert_eq!(hi_hz(Some(19_500.0)), HI_HZ);
+        let low = hi_hz(Some(11_000.0));
+        assert!((8_500.0..9_000.0).contains(&low), "{low}");
     }
 
     #[test]
@@ -291,6 +417,8 @@ mod tests {
                 shape: shape.clone(),
                 reliability,
                 transient: 0.0,
+                edge_hz: None,
+                percussive: None,
             };
             solve_gains(&cfg, &s, &m, leungo_eq::Archetype::Neutral)
         };

@@ -5,3 +5,4 @@ Cargo.lock.orig
 *.bak*
 .DS_Store
 /assets/*.zip
+/planning/

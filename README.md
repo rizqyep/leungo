@@ -143,27 +143,37 @@ what is verified and what is not) are in [TECHNICAL.md](TECHNICAL.md).
 
 ## Device profile
 
-Run `leungo device <files>` with one or more AutoEq `ParametricEQ.txt`
-files of your headphones or IEMs. Several sources are averaged, so one unit or
-coupler does not decide the result. The averaged curve is fitted onto the 8
-bands and written to `eq.device_curve`. The largest gain is shifted to 0 dB
-(the printed "level offset") so it cannot clip. Eight broad bands cannot
-reproduce narrow high-Q notches; the printed fit error shows how close the fit
-gets. `eq.device_strength` (default 0.6) scales how much of that curve is
-applied.
+Run `leungo device <files>` with measurements of your headphones or IEMs. Use
+either AutoEq measurement CSVs or AutoEq `ParametricEQ.txt` files, not both in one
+run. The fitted filters are written to `eq.device_filters` in the config.
+`eq.device_strength` (default 0.6) scales how much of that correction is applied.
+The printed fit error shows how close the fit gets.
 
-Getting the files: browse
+With CSVs, `--target` picks the curve to correct toward. The default is Harman
+in-ear 2019, which is bundled with Leungo.
+
+Getting the CSVs: in the AutoEq repository
+(<https://github.com/jaakkopasanen/AutoEq>), open `measurements/<source>/data/<rig>/<name>.csv`.
+Use the same model from two or three sources if they exist, so one unit or coupler
+does not decide the result:
+
+```sh
+leungo device super-review.csv rikudougoku.csv
+leungo device super-review.csv rikudougoku.csv --target my-target.csv
+```
+
+Getting ParametricEQ files: browse
 <https://github.com/jaakkopasanen/AutoEq/tree/master/results>, open the
 source, then the form factor folder (`in-ear`, `over-ear`), then your model,
-and download `<model> ParametricEQ.txt`. Download the same model from two or
-three sources if they exist, then:
+and download `<model> ParametricEQ.txt`. Then:
 
 ```sh
 leungo device ~/Downloads/*ParametricEQ.txt
 ```
 
-The repository does not ship any profile data. AutoEq is MIT licensed; the
-licensing of the underlying measurement data was not checked.
+The repository ships one target curve (Harman in-ear 2019, from AutoEq, MIT
+licensed; see `crates/leungo-eq/targets/LICENSE-AutoEq`) and no headphone
+measurements. The licensing of the underlying measurement data was not checked.
 
 
 ## Usage
@@ -223,7 +233,7 @@ q = 1.41
 clamp_db = 12.0
 strength = 0.5             # fraction of the deviation corrected, 0..1
 base_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # your manual IEM EQ
-device_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # fixed headphone/IEM correction, applied in full; written by `leungo device`
+device_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # legacy fixed correction; `leungo device` sets it to zeros and writes `eq.device_filters` instead
 deadzone_db = 2.0          # deviations from the track's own tilt smaller than this are left alone
 residual_cap_db = 6.0      # largest deviation the adaptive layer will chase
 percussive_relief = 0.5   # fraction the bass/treble correction is reduced for fully percussive material, 0 = off
@@ -291,7 +301,7 @@ rewritten.
 
 ## Tuning presets
 
-Presets bundle eight settings: `eq.strength`, `eq.deadzone_db`, `eq.residual_cap_db`, `analysis.refine_interval_s`, `analysis.refine_alpha`, `analysis.refine_max_step_db`, `analysis.defer_max_s`, `analysis.shape_window_s`. The device curve, targets and capture settings are never changed.
+Presets bundle eight settings: `eq.strength`, `eq.deadzone_db`, `eq.residual_cap_db`, `analysis.refine_interval_s`, `analysis.refine_alpha`, `analysis.refine_max_step_db`, `analysis.defer_max_s`, `analysis.shape_window_s`. The device filters, targets and capture settings are never changed.
 
 | preset | strength | dead zone dB | cap dB | refine every s | alpha | max step dB | defer max s | shape window s |
 |---|---|---|---|---|---|---|---|---|
@@ -376,8 +386,8 @@ macOS limitations:
 
 ## Known limitations
 
-- 2048-point FFT at 48 kHz puts the effective analysis floor at ~50 Hz; deeper
-  bass corrections come from the 63/125 Hz bands.
+- Bass is measured down to 31.5 Hz, but corrections start at 40 Hz. The
+  deepest correction comes from the 63 Hz band.
 - Track changes come from the player (MPRIS) when available, otherwise from
   silence gaps. A player without metadata that crossfades gaplessly may not be
   detected. Continuous mixes with 30+ second gaps between changes work; shorter

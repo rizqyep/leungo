@@ -15,7 +15,7 @@ one target curve. It separates three things:
 
 | Layer | What it is | Source of truth |
 |---|---|---|
-| Output device | Correction for the headphones or IEMs themselves | A measurement-based profile (`eq.device_curve`), fixed |
+| Output device | Correction for the headphones or IEMs themselves | A measurement-based set of filters (`eq.device_filters`), fixed |
 | Track | Bumps and dips in this song's balance that are outside normal | Measured live, per track |
 | Taste | Bass, warmth, presence, air offsets | The user (`sound` controls) |
 
@@ -38,7 +38,7 @@ flowchart TD
     MEAS --> CLS["Archetype label<br/>decided once per track"]
     CLS --> SHP["Remove tilt, dead zone, cap,<br/>percussive relief"]
     SHP --> FIT["Ridge least squares onto 8 bands,<br/>scale by strength and reliability"]
-    FIT --> ADD["Add device curve<br/>and sound signature,<br/>clamp to 12 dB"]
+    FIT --> ADD["Add sound signature,<br/>clamp to 12 dB,<br/>then device filters and preamp"]
     ADD --> APP["EqApplier<br/>(EasyEffects preset or in-process biquads)"]
 ```
 
@@ -46,7 +46,8 @@ Platform-specific code is limited to two traits in `leungo-core`:
 
 - `SampleSource::next() -> SourceEvent` yields audio chunks (or an
   end-of-stream/device event).
-- `EqApplier::apply_eq(&[f64])` and `set_bypass(bool)` push the 8 gains out.
+- `EqApplier::apply_eq(&EqOutput)` and `set_bypass(bool)` push out the 8 song
+  gains, the device filters and the preamp.
 
 The engine knows nothing about PulseAudio, EasyEffects, CoreAudio or BlackHole.
 
@@ -55,7 +56,7 @@ The engine knows nothing about PulseAudio, EasyEffects, CoreAudio or BlackHole.
 | Crate | Responsibility |
 |---|---|
 | `leungo-dsp` | RBJ biquads, magnitude response, direct-form-I state, shelf math |
-| `leungo-eq` | Archetypes, target shaping, device-profile fitting, signature, the least-squares solver |
+| `leungo-eq` | Archetypes, target shaping, measurement import (CSV and ParametricEQ), the parametric device fitter, signature, the least-squares solver |
 | `leungo-analysis` | FFT spectrum, features, robust shape tracker, detector, classifier (rule-based and fitted) |
 | `leungo-core` | Config and presets, engine state machine, traits, paths, offline analysis |
 | `leungo-capture-pipewire` | Linux capture through the PulseAudio API |
@@ -164,14 +165,37 @@ live; `Custom` uses the values in the config file.
 
 ## Measurement
 
-`leungo-analysis`, mainly `robust.rs` and `spectrum.rs`.
+`leungo-analysis`, mainly `robust.rs`, `spectrum.rs`, `subbass.rs` and `edge.rs`.
 
 - **Level normalization.** Each frame's 1/3-octave levels are normalized by
   that frame's own overall level, so playback volume does not move the result.
+- **Band edges.** Band levels on both grids weight each bin by the share of the
+  bin that lies inside the band. Before this, whole-bin sums gave up to 1.4 dB of
+  false bumps at 315 to 630 Hz on pink noise.
+- **Sub-bass path.** The main FFT has ~23 Hz bins, too coarse for bass, so bass
+  bands (1/3-octave centers up to 250 Hz) are measured on a second path. The
+  signal is lowpassed (97-tap Blackman-windowed sinc, 3 kHz cutoff, flat to
+  300 Hz, below -60 dB at frequencies that would alias onto 0 to 300 Hz) and
+  decimated by round(fs / 6000), which is 8 at 48 kHz, about 6 kHz. A 2048-point
+  Hann FFT then runs every 512 decimated samples, about 85 ms. Its bins are about
+  2.9 Hz wide. L and R power are summed as on the main path. This path is used
+  for the shape only.
 - **Gating.** Frames more than 10 dB below the *median* frame level are
   ignored. The median, not mean power, is used so one loud burst cannot gate
   out the quiet majority. (An earlier mean-power gate, as in BS.1770, did that.)
-- **Shape.** The per-band median over the last `shape_window_s = 20` s.
+- **Shape.** The per-band median over the last `shape_window_s = 20` s. Bass
+  bands come from the sub-bass path. The tracker takes frames only once that
+  path has its first window, about 0.35 s into a track.
+- **Median bias.** The median of noise-like power sits below its mean. For power
+  in n bins, the shape adds a per-band correction from a chi-square model with
+  k = 2n / 1.5 degrees of freedom (the Hann noise bandwidth is 1.5 bins), using
+  the Wilson-Hilferty approximation. Before this, one-bin bands read about 1.4 dB
+  low.
+- **Codec edge.** Taken from the plain mean power spectrum over the track's
+  audible frames, once 5 s have been seen. The edge is the highest frequency
+  where the level, smoothed to 1/12 octave, falls 25 dB or more within 1/6
+  octave. The search starts at 4 kHz. The solver uses it for its upper limit
+  (see Solver). The 25 dB threshold is *unverified* on real streams.
 - **Reliability** (0..1). The first and second halves of the shape window are
   measured separately and compared: 1.0 means they agree, 0 means they differ by
   6 dB rms or more. It scales correction strength:
@@ -182,10 +206,21 @@ live; `Custom` uses the values in the config file.
   material, which is expected to have more bass and treble, so those
   corrections are reduced by `percussive_relief = 0.5`. The mapping from
   fraction to 0..1 (0.15 to 0.45) is a guess, *unverified* on real music; the
-  values are logged so it can be fitted.
+  values are logged so it can be fitted. This fraction uses main-grid
+  (time-sharp) levels for every band. The sub-bass path is used for shape only.
 
-Limits: the 2048-point FFT at 48 kHz has ~23 Hz bins, so the effective floor is
-about 50 Hz. 1/3-octave bands narrower than a bin are dropped by the solver.
+Checks: on 60 s of pink noise, every band from 31.5 Hz to 16 kHz is within
+±0.25 dB of the mean. The 25 Hz band reads +0.52 dB, since it is only about two
+fine bins wide and below the correction floor.
+
+The solver still picks its 1/3-octave points from the main grid and drops any
+band that holds no main-grid bin, so the list starts at 25 Hz (20 Hz is
+dropped at a 2048-point FFT at 48 kHz).
+
+Offline analysis (`leungo analyze`) feeds the analyzer in 1024-frame chunks. One
+large push made every hop move the whole remaining buffer. A 2 min file took
+21 s that way and 0.4 s with chunks. On a 2 min stereo file the fine path raises
+CPU time from 0.39 s to 0.50 s (user).
 
 ## Solver and target shaping
 
@@ -197,8 +232,9 @@ about 50 Hz. 1/3-octave bands narrower than a bin are dropped by the solver.
    least-squares line is dragged by a wide bass bump and cancels its own
    correction; the median-slope fit does not.
 3. Shrink the residual by `deadzone_db = 2` (soft threshold) and clamp it to
-   `±residual_cap_db = 6`. Points outside 50 Hz to 10 kHz get no correction
-   (sub-bass and codec cutoffs). The dead zone can be set per point, which is
+   `±residual_cap_db = 6`. Points below `lo` (40 Hz) or above `hi` get no
+   correction. `hi` is 10 kHz, or `edge / 2^(1/3)` when the stream's lowpass
+   is lower (see Measurement). The dead zone can be set per point, which is
    how percussive material is given more room.
 4. Reduce the bass and treble ends of that residual by `percussive_relief`
    scaled by the transient fraction (`edge_weight` is 0 in the middle of the
@@ -212,44 +248,111 @@ about 50 Hz. 1/3-octave bands narrower than a bin are dropped by the solver.
    2k, 4k, 8k Hz with Q 1.41.
 6. Multiply the track correction by `strength * (0.5 + 0.5 * reliability)`.
    Classifier confidence is **not** part of this; it is displayed and logged.
-7. Add `device_strength * eq.device_curve` and the sound signature gains, then
-   clamp each band to ±12 dB.
+7. Add the sound signature gains, then clamp each band to ±12 dB. The device
+   filters are a separate stage and are not summed into these 8 bands (see
+   [Device profiles](#device-profiles)).
 
-Headroom is handled in two places, not one: the device curve is shifted so its
-largest boost is 0 dB when it is built (`leungo device`), and the signature
-gains are shifted so they never add a net boost. The track correction itself is
-not shifted and can boost a band (bounded by the 6 dB cap and `strength`), so
-there is no hard guarantee that the output level cannot rise.
+Headroom is a preamp, computed every time a curve is applied:
+`preamp = -max(0, peak of the combined response)`, where the response is the
+song bands plus the device filters, sampled on a 1/24-octave grid from 20 Hz
+to 20 kHz. On Linux it is the equalizer `input-gain`; on macOS it is a smoothed
+gain in the chain. The signature gains are still shifted so they never add a
+net boost.
 
 ```mermaid
 flowchart TD
     M["Measured 1/3-octave shape"] --> TL["Theil-Sen line<br/>in log frequency"]
-    TL --> R["Residual = shape minus line<br/>only 50 Hz to 10 kHz"]
+    TL --> R["Residual = shape minus line<br/>only lo (40 Hz) to hi (10 kHz or codec edge)"]
     R --> DZ["Soft dead zone 2 dB<br/>clamp to plus or minus 6 dB"]
     DZ --> PR["Percussive relief<br/>at bass and treble ends"]
     TG["Target =<br/>base_curve + archetype delta"] --> LS
     PR --> LS["Remove mean, ridge least squares<br/>8 peaking biquads, Q 1.41, 12 dB limit"]
     LS --> SC["x strength x<br/>0.5 + 0.5 x reliability"]
     SC --> SUM(("+"))
-    DEV["device_curve x device_strength"] --> SUM
     SIG["Sound signature<br/>never a net boost"] --> SUM
     SUM --> CL["Clamp each band to 12 dB"]
+    DEV["Device filters x device_strength<br/>own stage, after the 8 bands"] --> PRE["Preamp = minus the peak of<br/>song plus device response"]
+    CL --> PRE
 ```
 
-Eight broad bands cannot follow narrow notches (for example a 5 kHz IEM
-resonance). The device fit reports its rms error for that reason.
+The 8 bands are the song layer only. They are too broad for narrow notches
+(for example a 5 kHz IEM resonance), so the device stage has its own parametric
+filters.
 
 ## Device profiles
 
-`leungo device <files...>` reads one or more AutoEq `ParametricEQ.txt` files
-(`Preamp`, then `Filter N: ON PK|LSC|HSC Fc … Gain … Q …`), evaluates each
-filter set on the 1/3-octave grid, averages the responses in dB across files
-(`consensus_db`), and fits the 8 bands to that mean. The result is written to
-`eq.device_curve` in the config.
+`leungo device <files...> [--target <csv>]` accepts either AutoEq measurement
+CSVs or AutoEq `ParametricEQ.txt` files, not a mix in one run.
+
+- **CSV:** a `frequency,raw` header. AutoEq results CSVs with more columns also
+  work; only the `raw` column is used. `--target` applies only to CSVs. The
+  default target is Harman in-ear 2019, bundled at
+  `crates/leungo-eq/targets/harman-in-ear-2019.csv` (from AutoEq, MIT, copied as
+  `targets/LICENSE-AutoEq`).
+- **ParametricEQ:** the AutoEq format (`Preamp`, then
+  `Filter N: ON PK|LSC|HSC Fc … Gain … Q …`). These are already
+  corrections, toward a target AutoEq chose (which one is *unverified*). Each
+  file's response is evaluated on the grid, the files are averaged in dB
+  (`consensus_db`), and the mean is refitted with the same fitter.
+
+The CSV pipeline (`crates/leungo-eq/src/fr.rs`):
+
+1. Each measurement is resampled onto a 1/12-octave grid from 20 Hz to 20 kHz
+   and level-normalized so that 500 Hz to 1 kHz is 0 dB.
+2. The sources are combined by per-point median.
+3. The spread between sources gives a weight,
+   `1 / (1 + (spread / 1.5 dB)^2)`. The 1.5 dB is *unverified*. With one
+   source, the weight falls from 1 to 0.5 between 6 and 10 kHz.
+4. The correction is weight x (target - measured), smoothed over 3 grid points.
+   A boost may rise at most 3 dB above the median of its 1/3-octave
+   neighbourhood. The cap is there because narrow dips are mostly canal
+   resonances. The 3 dB is *unverified*. The correction fades to zero between
+   8 and 12 kHz and is clamped to +6 / -12 dB.
+
+The fitter (`crates/leungo-eq/src/fit.rs`) turns that correction into filters:
+
+| Filter | Limits |
+|---|---|
+| Count | one low shelf, one high shelf, up to 8 peaking |
+| Low shelf fc | 30 to 300 Hz |
+| High shelf fc | 2 to 16 kHz |
+| Shelf Q | 0.4 to 0.9 |
+| Peaking fc | 20 Hz to 12 kHz |
+| Peaking Q | 0.4 to 6; the maximum falls to 2 between 5 and 10 kHz, because treble peaks move with insertion depth (*unverified*) |
+| Gain | within ±12 dB |
+
+Placement is greedy: each new filter goes at the worst remaining error, with Q
+taken from the width at half height. Then Levenberg-Marquardt adjusts all
+parameters together. A gain penalty of 0.05 per dB² stops big filters from
+stacking and cancelling. The fit stops at 0.5 dB rms, or when a new filter
+improves the error by less than 0.1 dB. A level offset is fitted and thrown
+away, because level is the preamp's job.
+
+The result is written to `eq.device_filters` in the config, an array of tables
+with `kind` (`"peak"`, `"low_shelf"` or `"high_shelf"`), `fc`, `gain_db` and `q`.
+`leungo device` sets `eq.device_curve` to zeros so the correction is not applied
+twice. Older configs with a non-zero `device_curve` still work as before.
+
+The device filters are their own stage, scaled by `device_strength`. They are
+not squeezed into the 8 song bands.
+
+- **Linux:** written into the same EasyEffects equalizer as extra bands after
+  the 8 song bands. Every band uses mode `APO (DR)` (RBJ cookbook math, the same
+  as the fitter), with EasyEffects types Bell, Lo-shelf and Hi-shelf. Verified on
+  EasyEffects 8.2.8: white noise was measured before (`easyeffects_sink.monitor`)
+  and after EasyEffects (DAC monitor). The response matched the model within
+  0.04 dB rms, worst 0.16 dB at 80 Hz. EasyEffects 7 support for `APO (DR)` is
+  *unverified*.
+- **macOS:** extra biquads in `leungo-standalone`'s chain. Gain changes are
+  smoothed like the bands.
+
+Measured example: KZ EDX Pro (Super Review and RikudouGoku, toward Harman in-ear
+2019) fits to 7 filters with a 0.36 dB rms error. The old 8 fixed bands on the
+same correction gave 1.12 dB rms (20 Hz to 8 kHz). crinacle's AutoEq folder for
+this IEM has no raw CSV, only EQ files.
 
 Using several independent measurements is deliberate: a single unit or coupler
-can be an outlier. Which target curve AutoEq corrected
-toward is *unverified*. The profile data in `profiles/` is not published in the
+can be an outlier. The profile data in `profiles/` is not published in the
 repo, because the licensing of the underlying measurement data was not checked.
 
 ## Classifier
@@ -293,7 +396,8 @@ the margin with a probability. The archetype only changes the target by at most
 
 macOS has no system audio tap and no EasyEffects, so `leungo-standalone` does
 the whole job: capture the BlackHole loopback input, resample, filter with 8
-in-process biquads (smoothed gain changes), and play to the real output.
+in-process biquads plus the device filters (smoothed gain changes), and play to
+the real output.
 
 - **Clocks.** The two devices run on separate clocks. A small controller
   absorbs the drift. It is unit-tested against simulated drift and *unverified*
@@ -314,6 +418,9 @@ in-process biquads (smoothed gain changes), and play to the real output.
 | Runtime state | `~/.cache/leungo/`: `status.json`, `bypass`, `tuning`, `signature.json` |
 | Track log (fitting input) | `~/.local/share/leungo/tracks.jsonl` |
 | EasyEffects preset | `~/.local/share/easyeffects/output/leungo.json` |
+
+Track log lines are now `"v": 3` and have an `edge_hz` field: the codec edge in
+Hz, or `null` when no edge was found.
 
 macOS uses the platform equivalents (`~/Library/Application Support/leungo`).
 Directories left over from the earlier name `adaptive-eq` are migrated on first
@@ -363,12 +470,17 @@ Window opening (`gui.open`): `app` launches a Chromium-family browser with
 
 - `eq.base_curve` is part of the target the solver fits, so it is scaled by
   `strength` along with everything else in the track correction. A curve meant
-  to be applied in full belongs in `eq.device_curve`, which is not scaled by
-  `strength`.
-- No per-output-device profiles: one `device_curve` is applied to whatever is
+  to be applied in full belongs in the device stage (`eq.device_filters`), which
+  `strength` does not scale.
+- No per-output-device profiles: one device correction is applied to whatever is
   playing.
 - No awareness of playback level (equal-loudness effects), because the monitor
   signal is taken before the volume control.
 - The classifier is weak and the genre labels are coarse; a style prior from
   metadata was investigated (MusicBrainz) but not built.
 - 8 bands and ±12 dB: not a room correction or a precise headphone EQ.
+- Tonal peaks versus mix balance (song key) are not handled yet.
+- The percussiveness mapping (0.15 to 0.45) is still uncalibrated. On pink noise
+  the transient fraction moved from 0.27 to 0.22 with the measurement changes.
+- The measurement changes (sub-bass path, codec edge, bias correction) are not
+  yet verified by ear.

@@ -8,7 +8,7 @@
 use crate::bridge::Bridge;
 use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use leungo_core::{EqApplier, SampleSource, SourceEvent};
+use leungo_core::{EqApplier, EqOutput, SampleSource, SourceEvent};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -64,7 +64,7 @@ struct Shared {
     output: Mutex<VecDeque<f32>>,
     primed: AtomicBool,
     bypass: AtomicBool,
-    target: Mutex<Vec<f64>>,
+    target: Mutex<EqOutput>,
     stop: Arc<AtomicBool>,
 }
 
@@ -94,10 +94,9 @@ pub struct StandaloneApplier {
 }
 
 impl EqApplier for StandaloneApplier {
-    fn apply_eq(&mut self, gains: &[f64]) -> Result<()> {
+    fn apply_eq(&mut self, eq: &EqOutput) -> Result<()> {
         if let Ok(mut t) = self.shared.target.lock() {
-            t.clear();
-            t.extend_from_slice(gains);
+            t.clone_from(eq);
         }
         Ok(())
     }
@@ -327,12 +326,17 @@ fn bridge_loop(sh: &Shared, mut bridge: Bridge, tx: Sender<Vec<f32>>) {
         if tx.send(block.clone()).is_err() {
             break;
         }
-        let gains = if sh.bypass.load(Ordering::Relaxed) {
-            vec![0.0; 8]
+        let eq = if sh.bypass.load(Ordering::Relaxed) {
+            EqOutput {
+                gains: vec![0.0; 8],
+                ..EqOutput::default()
+            }
         } else {
             sh.target.lock().map(|t| t.clone()).unwrap_or_default()
         };
-        bridge.chain.set_target(&gains);
+        bridge.chain.set_target(&eq.gains);
+        bridge.chain.set_device(&eq.device);
+        bridge.chain.set_preamp(eq.preamp_db);
         let fill = sh.output.lock().map(|q| q.len() / 2).unwrap_or(0);
         produced.clear();
         bridge.process(&block, fill, &mut produced);
@@ -355,7 +359,10 @@ pub fn start(settings: Settings, stop: Arc<AtomicBool>) -> Result<Running> {
         output: Mutex::new(VecDeque::new()),
         primed: AtomicBool::new(false),
         bypass: AtomicBool::new(false),
-        target: Mutex::new(vec![0.0; settings.freqs.len()]),
+        target: Mutex::new(EqOutput {
+            gains: vec![0.0; settings.freqs.len()],
+            ..EqOutput::default()
+        }),
         stop: stop.clone(),
     });
     let (init_tx, init_rx) = channel::<std::result::Result<InitInfo, String>>();

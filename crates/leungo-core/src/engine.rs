@@ -289,6 +289,7 @@ impl Engine {
             }
             self.poll_bypass()?;
         }
+        self.log_track_end();
         Ok(())
     }
 
@@ -399,7 +400,9 @@ impl Engine {
         self.bypassed = want;
         if !want
             && let Some(g) = self.last_applied.clone()
-            && let Err(e) = self.applier.apply_eq(&g)
+            && let Err(e) =
+                self.applier
+                    .apply_eq(&crate::offline::output(&self.cfg, &g, self.solver.fs))
         {
             tracing::error!("re-apply after bypass failed: {e:#}");
         }
@@ -483,6 +486,7 @@ impl Engine {
     }
 
     fn begin_analysis(&mut self) {
+        self.log_track_end();
         self.pending = None;
         self.analyzer.reset_spectrum();
         self.detector.mark_now(self.now_s);
@@ -545,18 +549,48 @@ impl Engine {
         Ok(())
     }
 
+    /// The track's band shape over what was actually heard (up to the last
+    /// 30 s), written when the next one starts. Plan 06 learns from these.
+    fn log_track_end(&self) {
+        let Some(t) = self.analyzer.tracker() else {
+            return;
+        };
+        let Some(shape) = t.shape(t.len()) else {
+            return;
+        };
+        let round =
+            |v: &[f64]| -> Vec<f64> { v.iter().map(|x| (x * 10.0).round() / 10.0).collect() };
+        self.append_log(serde_json::json!({
+            "v": 3,
+            "kind": "end",
+            "track": self.analyzed_id,
+            "heard_s": (self.now_s - self.begin_s).round(),
+            "points": self.solver.points,
+            "shape": round(&shape),
+            "reliability": t.reliability(t.len()),
+            "transient": t.transient_fraction(t.len()),
+            "percussive": self.analyzer.percussive_share().map(|v| round(&v)),
+            "edge_hz": self.analyzer.bandwidth_edge(),
+        }));
+    }
+
     fn log_track(&self, archetype: leungo_eq::Archetype, confidence: f64) {
-        let Some(path) = &self.track_log else { return };
         let d = descriptors(&extract(&self.analyzer, self.crest_db));
         let line = serde_json::json!({
             "d": d,
             "archetype": archetype.as_str(),
             "confidence": confidence,
             "track": self.last_track_id,
-            "v": 2,
+            "v": 3,
             "reliability": self.reliability,
             "transient": self.transient,
+            "edge_hz": self.analyzer.bandwidth_edge(),
         });
+        self.append_log(line);
+    }
+
+    fn append_log(&self, line: serde_json::Value) {
+        let Some(path) = &self.track_log else { return };
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -639,7 +673,9 @@ impl Engine {
         self.last_applied = Some(gains.clone());
 
         if !self.bypassed
-            && let Err(e) = self.applier.apply_eq(&gains)
+            && let Err(e) =
+                self.applier
+                    .apply_eq(&crate::offline::output(&self.cfg, &gains, self.solver.fs))
         {
             tracing::error!("apply failed: {e:#}");
             let mut s = self.status.lock().unwrap();

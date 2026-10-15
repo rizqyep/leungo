@@ -5,6 +5,8 @@ use leungo_dsp::peaking_magnitude_db;
 use serde::{Deserialize, Serialize};
 
 pub mod device;
+pub mod fit;
+pub mod fr;
 pub mod signature;
 pub mod targets;
 
@@ -284,7 +286,7 @@ impl EqSolver {
 }
 
 /// Gaussian elimination with partial pivoting, in place.
-fn solve_linear(a: &mut [f64], b: &mut [f64], n: usize) -> Vec<f64> {
+pub(crate) fn solve_linear(a: &mut [f64], b: &mut [f64], n: usize) -> Vec<f64> {
     for col in 0..n {
         let pivot = (col..n).fold(col, |best, r| {
             if a[r * n + col].abs() > a[best * n + col].abs() {

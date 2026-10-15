@@ -11,6 +11,7 @@ audio-io = ["dep:cpal", "dep:coreaudio-sys"]
 [dependencies]
 leungo-core = { workspace = true }
 leungo-dsp = { workspace = true }
+leungo-eq = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 cpal = { version = "0.15", optional = true }

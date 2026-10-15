@@ -29,7 +29,18 @@ pub trait SampleSource: Send {
     fn next(&mut self) -> Result<SourceEvent>;
 }
 
+/// Everything the output stage runs.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EqOutput {
+    /// Song bands at `eq.frequencies`, Q `eq.q`.
+    pub gains: Vec<f64>,
+    /// Device correction, already scaled by `device_strength`.
+    pub device: Vec<leungo_eq::device::Filter>,
+    /// Never positive.
+    pub preamp_db: f64,
+}
+
 pub trait EqApplier: Send {
-    fn apply_eq(&mut self, gains: &[f64]) -> Result<()>;
+    fn apply_eq(&mut self, eq: &EqOutput) -> Result<()>;
     fn set_bypass(&mut self, on: bool) -> Result<()>;
 }

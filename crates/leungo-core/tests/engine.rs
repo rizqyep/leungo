@@ -2,7 +2,7 @@
 //! recording applier.
 
 use anyhow::Result;
-use leungo_core::{Config, Engine, EqApplier, SampleSource, SourceEvent, Status};
+use leungo_core::{Config, Engine, EqApplier, EqOutput, SampleSource, SourceEvent, Status};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -23,8 +23,8 @@ struct RecordingApplier {
 }
 
 impl EqApplier for RecordingApplier {
-    fn apply_eq(&mut self, gains: &[f64]) -> Result<()> {
-        self.applied.lock().unwrap().push(gains.to_vec());
+    fn apply_eq(&mut self, eq: &EqOutput) -> Result<()> {
+        self.applied.lock().unwrap().push(eq.gains.clone());
         Ok(())
     }
 
@@ -463,10 +463,16 @@ fn analyzed_tracks_are_logged_for_fitting() {
 
     let raw = std::fs::read_to_string(&path).unwrap();
     let _ = std::fs::remove_file(&path);
-    let lines: Vec<&str> = raw.lines().collect();
-    assert_eq!(lines.len(), 2, "one line per analyzed track");
-    let v: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(v["d"].as_array().unwrap().len(), 4);
+    let lines: Vec<serde_json::Value> = raw
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let (ends, starts): (Vec<_>, Vec<_>) = lines.iter().partition(|v| v["kind"] == "end");
+    assert_eq!(starts.len(), 2, "one analysis line per track");
+    assert_eq!(starts[0]["d"].as_array().unwrap().len(), 4);
+    assert_eq!(ends.len(), 2, "one end line per track, the last on stop");
+    let points = ends[0]["points"].as_array().unwrap().len();
+    assert_eq!(ends[0]["shape"].as_array().unwrap().len(), points);
 }
 
 #[test]

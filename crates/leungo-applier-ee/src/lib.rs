@@ -4,12 +4,15 @@
 //! JSON format; 8.x normalizes the legacy `plugins_order` entries).
 
 use anyhow::{Context, Result};
-use leungo_core::{ApplierCfg, EqApplier};
+use leungo_core::{ApplierCfg, EqApplier, EqOutput};
 use leungo_eq::BAND_FREQS;
+use leungo_eq::device::{Filter, Kind, peaks};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
+
+const SONG_Q: f64 = 1.41;
 
 pub fn default_ee_output_dir() -> PathBuf {
     dirs_data_dir().join("easyeffects").join("output")
@@ -99,37 +102,40 @@ impl EasyEffectsApplier {
         &self.preset_path
     }
 
-    fn write_preset(&self, gains: &[f64]) -> Result<()> {
-        let freqs: Vec<f64> = BAND_FREQS.to_vec();
-        assert_eq!(freqs.len(), gains.len(), "gain/frequency count mismatch");
-        let q = 1.41;
-        let channels = |gains: &[f64]| EeChannel {
-            bands: (0..gains.len())
-                .map(|i| {
-                    (
-                        format!("band{i}"),
-                        EeBand {
-                            frequency: freqs[i],
-                            gain: gains[i],
-                            q,
-                            filter_type: "Bell".into(),
-                            mode: "RLC (BT)".into(),
-                            slope: "x1".into(),
-                            mute: false,
-                            solo: false,
-                        },
-                    )
-                })
+    fn write_preset(&self, eq: &EqOutput) -> Result<()> {
+        let mut filters = peaks(&BAND_FREQS, &eq.gains, SONG_Q);
+        filters.extend_from_slice(&eq.device);
+        let band = |f: &Filter| EeBand {
+            frequency: f.fc,
+            gain: f.gain_db,
+            q: f.q,
+            filter_type: match f.kind {
+                Kind::Peak => "Bell",
+                Kind::LowShelf => "Lo-shelf",
+                Kind::HighShelf => "Hi-shelf",
+            }
+            .into(),
+            // APO (DR) is the RBJ cookbook math, same as our fitter
+            mode: "APO (DR)".into(),
+            slope: "x1".into(),
+            mute: false,
+            solo: false,
+        };
+        let channel = || EeChannel {
+            bands: filters
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (format!("band{i}"), band(f)))
                 .collect(),
         };
         let equalizer = EeEqualizer {
-            input_gain: 0.0,
+            input_gain: eq.preamp_db,
             output_gain: 0.0,
             mode: "IIR".into(),
-            num_bands: gains.len(),
+            num_bands: filters.len(),
             split_channels: false,
-            left: channels(gains),
-            right: channels(gains),
+            left: channel(),
+            right: channel(),
         };
         let preset = EePreset {
             output: EeOutput {
@@ -176,8 +182,13 @@ impl EasyEffectsApplier {
 }
 
 impl EqApplier for EasyEffectsApplier {
-    fn apply_eq(&mut self, gains: &[f64]) -> Result<()> {
-        self.write_preset(gains)?;
+    fn apply_eq(&mut self, eq: &EqOutput) -> Result<()> {
+        anyhow::ensure!(
+            eq.gains.len() == BAND_FREQS.len(),
+            "expected {} gains",
+            BAND_FREQS.len()
+        );
+        self.write_preset(eq)?;
         self.load_preset();
         Ok(())
     }
@@ -203,7 +214,10 @@ impl EqApplier for EasyEffectsApplier {
                 );
                 if on {
                     // fall back to a flat preset so the effect still neutralizes
-                    let flat = vec![0.0; BAND_FREQS.len()];
+                    let flat = EqOutput {
+                        gains: vec![0.0; BAND_FREQS.len()],
+                        ..EqOutput::default()
+                    };
                     self.write_preset(&flat)?;
                     self.load_preset();
                 }
@@ -225,8 +239,17 @@ mod tests {
             ..ApplierCfg::default()
         };
         let applier = EasyEffectsApplier::new(&cfg);
-        let gains = vec![1.5, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        applier.write_preset(&gains).unwrap();
+        let eq = EqOutput {
+            gains: vec![1.5, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            device: vec![Filter {
+                kind: Kind::LowShelf,
+                fc: 105.0,
+                gain_db: -4.0,
+                q: 0.7,
+            }],
+            preamp_db: -1.5,
+        };
+        applier.write_preset(&eq).unwrap();
         let raw = std::fs::read_to_string(dir.join("leungo.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
@@ -235,8 +258,12 @@ mod tests {
         // both instance forms present for EE 7 and EE 8
         for key in ["equalizer#0", "equalizer"] {
             let eq = &out[key];
-            assert_eq!(eq["num-bands"], 8);
+            assert_eq!(eq["num-bands"], 9);
             assert_eq!(eq["mode"], "IIR");
+            assert_eq!(eq["input-gain"], -1.5);
+            assert_eq!(eq["left"]["band0"]["mode"], "APO (DR)");
+            assert_eq!(eq["left"]["band8"]["type"], "Lo-shelf");
+            assert_eq!(eq["left"]["band8"]["gain"], -4.0);
             assert_eq!(eq["left"]["band0"]["frequency"], 63.0);
             assert_eq!(eq["left"]["band0"]["gain"], 1.5);
             assert_eq!(eq["left"]["band0"]["type"], "Bell");

@@ -1,7 +1,9 @@
 //! Overlapping FFT frames with an exponentially averaged power spectrum.
 //! The average is per track: the engine resets it on every track change.
 
-use crate::robust::BandTracker;
+use crate::hpss::Hpss;
+use crate::robust::{BandTracker, Grid};
+use crate::subbass::SubBass;
 use num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use std::sync::Arc;
@@ -23,6 +25,9 @@ pub struct FrameResult {
     pub silent: bool,
 }
 
+/// Audio needed before the codec edge is trusted.
+const EDGE_MIN_S: f64 = 5.0;
+
 pub struct SpectrumAnalyzer {
     fft_size: usize,
     hop: usize,
@@ -38,6 +43,11 @@ pub struct SpectrumAnalyzer {
     prev_db: Option<Vec<f64>>,
     ema_alpha: f64,
     tracker: Option<BandTracker>,
+    sub: Option<SubBass>,
+    hpss: Option<Hpss>,
+    /// Plain mean power over the track's audible frames, for the codec edge.
+    track_power: Vec<f64>,
+    track_frames: usize,
 }
 
 impl SpectrumAnalyzer {
@@ -67,6 +77,10 @@ impl SpectrumAnalyzer {
             prev_db: None,
             ema_alpha,
             tracker: None,
+            sub: None,
+            hpss: None,
+            track_power: vec![0.0; nbins],
+            track_frames: 0,
         }
     }
 
@@ -89,20 +103,55 @@ impl SpectrumAnalyzer {
     /// Zeroes the long-term average; called at every track start.
     pub fn reset_spectrum(&mut self) {
         self.avg_power.fill(0.0);
+        self.track_power.fill(0.0);
+        self.track_frames = 0;
         if let Some(t) = self.tracker.as_mut() {
             t.clear();
+        }
+        if let Some(s) = self.sub.as_mut() {
+            s.reset();
+        }
+        if let Some(h) = self.hpss.as_mut() {
+            h.reset();
         }
     }
 
     /// Starts keeping per-frame levels at these 1/3-octave centers, up to
     /// `cap_frames` frames, for the robust shape and reliability estimates.
+    /// Bass bands come from the fine path (`subbass`).
     pub fn enable_band_tracker(&mut self, centers: &[f64], cap_frames: usize) {
-        self.tracker = Some(BandTracker::new(
-            centers,
-            self.fs,
-            self.fft_size,
-            cap_frames,
-        ));
+        let sub = SubBass::new(self.fs);
+        let main = Grid {
+            fs: self.fs,
+            fft_size: self.fft_size,
+        };
+        let sub_grid = Grid {
+            fs: sub.fs(),
+            fft_size: sub.fft_size(),
+        };
+        let tracker = BandTracker::new(centers, main, Some(sub_grid), cap_frames);
+        self.sub = tracker.uses_sub().then_some(sub);
+        self.tracker = Some(tracker);
+        let bands = centers
+            .iter()
+            .map(|&c| crate::robust::bins(c, main))
+            .collect();
+        self.hpss = Some(Hpss::new(bands));
+    }
+
+    /// Per tracked band, how much of the power is drum hits rather than
+    /// tones (see `hpss`).
+    pub fn percussive_share(&self) -> Option<Vec<f64>> {
+        self.hpss.as_ref()?.percussive_share()
+    }
+
+    /// Upper edge of the track's content (codec lowpass), once a few
+    /// seconds of audio have been seen.
+    pub fn bandwidth_edge(&self) -> Option<f64> {
+        if self.track_frames < self.frames_for(EDGE_MIN_S) {
+            return None;
+        }
+        crate::edge::bandwidth_edge(&self.track_power, self.fs / self.fft_size as f64)
     }
 
     pub fn tracker(&self) -> Option<&BandTracker> {
@@ -144,6 +193,11 @@ impl SpectrumAnalyzer {
                 self.buf_r.push(s);
             }
         }
+        if let Some(sub) = self.sub.as_mut() {
+            let fresh = chunk.len() / channels.max(1);
+            let start = self.buf_l.len() - fresh;
+            sub.push(&self.buf_l[start..], &self.buf_r[start..]);
+        }
         let mut results = Vec::new();
         while self.buf_l.len() >= self.fft_size {
             let frame_l = self.buf_l[..self.fft_size].to_vec();
@@ -176,20 +230,38 @@ impl SpectrumAnalyzer {
         self.channel_power(r);
         let nbins = n / 2 + 1;
 
+        if let Some(h) = self.hpss.as_mut() {
+            let mono: Vec<f64> = power_l
+                .iter()
+                .zip(&self.chan_power)
+                .map(|(a, b)| a + b)
+                .collect();
+            h.push(&mono, silent);
+        }
+
         let mut mono_db = Vec::with_capacity(nbins);
         for (pl, pr) in power_l.iter().zip(self.chan_power.iter()) {
             mono_db.push(10.0 * (pl + pr + 1e-20).log10());
         }
 
         if !silent {
+            let mono: Vec<f64> = power_l
+                .iter()
+                .zip(self.chan_power.iter())
+                .map(|(a, b)| a + b)
+                .collect();
             if let Some(t) = self.tracker.as_mut() {
-                let mono: Vec<f64> = power_l
-                    .iter()
-                    .zip(self.chan_power.iter())
-                    .map(|(a, b)| a + b)
-                    .collect();
-                t.push(&mono);
+                match self.sub.as_ref().map(SubBass::power) {
+                    // fine path still filling its first window
+                    Some(None) => {}
+                    Some(sub) => t.push(&mono, sub),
+                    None => t.push(&mono, None),
+                }
             }
+            for (acc, p) in self.track_power.iter_mut().zip(&mono) {
+                *acc += (p - *acc) / (self.track_frames + 1) as f64;
+            }
+            self.track_frames += 1;
             let alpha = self.ema_alpha;
             for (avg, (pl, pr)) in self
                 .avg_power
@@ -324,6 +396,59 @@ mod tests {
         }
         let centroid = weighted / total;
         assert!((centroid - 1000.0).abs() < 25.0, "centroid {centroid}");
+    }
+
+    /// Pink noise (Paul Kellet's filter on a fixed-seed white source).
+    fn pink(n: usize, seed: u64) -> Vec<f32> {
+        let mut s = seed;
+        let mut b = [0.0f64; 7];
+        (0..n)
+            .map(|_| {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let w = (s >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
+                b[0] = 0.99886 * b[0] + w * 0.0555179;
+                b[1] = 0.99332 * b[1] + w * 0.0750759;
+                b[2] = 0.96900 * b[2] + w * 0.1538520;
+                b[3] = 0.86650 * b[3] + w * 0.3104856;
+                b[4] = 0.55000 * b[4] + w * 0.5329522;
+                b[5] = -0.7616 * b[5] - w * 0.0168980;
+                let p = b.iter().sum::<f64>() + w * 0.5362;
+                b[6] = w * 0.115926;
+                (p * 0.05) as f32
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pink_noise_reads_flat_across_both_paths() {
+        let mut spec = analyzer();
+        let centers = leungo_eq::third_octave_centers(25.0, 16_000.0);
+        spec.enable_band_tracker(&centers, 100_000);
+        let (l, r) = (pink(48_000 * 60, 1), pink(48_000 * 60, 2));
+        let mut x = Vec::with_capacity(2 * l.len());
+        for (a, b) in l.iter().zip(&r) {
+            x.push(*a);
+            x.push(*b);
+        }
+        for c in x.chunks(2048) {
+            spec.push_interleaved(c, 2, -90.0);
+        }
+        let t = spec.tracker().unwrap();
+        let shape = t.shape(t.len()).unwrap();
+        let mean = shape.iter().sum::<f64>() / shape.len() as f64;
+        // 25 Hz is only two fine bins wide and reads about +0.5 dB; it sits
+        // below the correction floor, so it is held to a looser bound.
+        for (f, v) in centers.iter().zip(&shape) {
+            let tol = if *f < 30.0 { 0.75 } else { 0.5 };
+            assert!(
+                (v - mean).abs() < tol,
+                "{f} Hz: {:+.2} dB  {shape:.2?}",
+                v - mean
+            );
+        }
+        assert_eq!(spec.bandwidth_edge(), None);
     }
 
     #[test]
