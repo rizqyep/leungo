@@ -74,10 +74,20 @@ fn band_range_sum(spec: &SpectrumAnalyzer) -> (f64, f64) {
 
 /// Averaged levels in dB at ISO 1/3-octave center frequencies.
 pub fn third_octave_levels(spec: &SpectrumAnalyzer, centers: &[f64]) -> Vec<f64> {
-    let ratio = 2.0f64.powf(1.0 / 6.0);
+    let grid = crate::robust::Grid {
+        fs: spec.fs(),
+        fft_size: spec.fft_size(),
+    };
+    let p = spec.avg_power();
     centers
         .iter()
-        .map(|&c| spec.band_level_db(c / ratio, c * ratio))
+        .map(|&c| {
+            let sum: f64 = crate::robust::bins(c, grid)
+                .iter()
+                .filter_map(|&(i, w)| p.get(i).map(|v| v * w))
+                .sum();
+            10.0 * (sum + 1e-20).log10()
+        })
         .collect()
 }
 

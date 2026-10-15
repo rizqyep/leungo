@@ -260,6 +260,9 @@
         <div class="divider"></div>
         <div class="row"><label for="s_device">Device correction</label><input type="range" id="s_device" min="0" max="100" step="5"><output id="o_device"></output></div>
         <p class="hint">Device correction is how much of your headphone's measured response is undone. Lower keeps more of its own character.</p>
+        <div class="divider"></div>
+        <div class="row"><label for="s_punch">Drum attack (test)</label><input type="checkbox" id="s_punch"><output id="o_punch"></output></div>
+        <p class="hint">Keeps kick and snare hits from being trimmed while boomy bass and low mids still are. Switches on the current song, so you can compare.</p>
       </section>
 
       <section class="card" aria-label="Tuning">
@@ -313,12 +316,14 @@ function currentSound() {
   const s = {};
   KEYS.forEach((k) => { s[k] = parseFloat($('s_' + k).value); });
   s.device = parseFloat($('s_device').value) / 100;
+  s.punch = $('s_punch').checked ? 1 : 0;
   return s;
 }
 function fmtDb(v) { return (v > 0 ? '+' : '') + v.toFixed(1) + ' dB'; }
 function renderOutputs() {
   KEYS.forEach((k) => { $('o_' + k).textContent = fmtDb(parseFloat($('s_' + k).value)); });
   $('o_device').textContent = Math.round(parseFloat($('s_device').value)) + '%';
+  $('o_punch').textContent = $('s_punch').checked ? 'On' : 'Off';
   const cur = currentSound();
   [...presetsEl.children].forEach((b) => {
     const p = PRESETS.find((x) => x.id === b.dataset.id);
@@ -331,7 +336,7 @@ function sendSound(now) {
   clearTimeout(state.pending);
   const go = () => {
     const s = currentSound();
-    const q = KEYS.concat(['device']).map((k) => k + '=' + s[k]).join('&');
+    const q = KEYS.concat(['device', 'punch']).map((k) => k + '=' + s[k]).join('&');
     fetch('/api/sound?' + q, { method: 'POST' }).catch(() => {});
   };
   if (now) go(); else state.pending = setTimeout(go, 120);
@@ -339,6 +344,7 @@ function sendSound(now) {
 KEYS.concat(['device']).forEach((k) => {
   $('s_' + k).addEventListener('input', () => { renderOutputs(); sendSound(false); });
 });
+$('s_punch').addEventListener('change', () => { renderOutputs(); sendSound(true); });
 
 // ---- tuning and bypass
 $('tuning').addEventListener('click', (e) => {
@@ -571,6 +577,7 @@ function render() {
   if (d.sound && Date.now() - state.touched > 1500) {
     KEYS.forEach((k) => { $('s_' + k).value = d.sound[k]; });
     $('s_device').value = Math.round(d.sound.device * 100);
+    $('s_punch').checked = !!d.sound.punch;
     renderOutputs();
     markStyle(d.sound);
   }

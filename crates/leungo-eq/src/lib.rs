@@ -179,28 +179,11 @@ pub struct EqSolver {
 }
 
 impl EqSolver {
-    /// `fft_size` matters: 1/3-octave bands narrower than the FFT bin width
-    /// can end up with zero bins and would report garbage, so only points
-    /// whose band actually contains a bin are used.
-    pub fn new(
-        freqs: Vec<f64>,
-        q: f64,
-        clamp_db: f64,
-        ridge: f64,
-        fs: f64,
-        fft_size: usize,
-    ) -> Self {
-        let bin = fs / fft_size as f64;
-        let hi = 0.95 * fs / 2.0;
-        let ratio = 2.0f64.powf(1.0 / 6.0);
-        let points: Vec<f64> = third_octave_centers(20.0, hi)
-            .into_iter()
-            .filter(|&c| {
-                let (lo, up) = (c / ratio, c * ratio);
-                let first = (lo / bin).ceil() * bin;
-                first >= lo && first < up
-            })
-            .collect();
+    /// Points are every 1/3-octave center from 25 Hz up. Bands narrower
+    /// than a main-grid bin are fine: the analysis weights partial bins and
+    /// reads the bass from its fine path.
+    pub fn new(freqs: Vec<f64>, q: f64, clamp_db: f64, ridge: f64, fs: f64) -> Self {
+        let points = third_octave_centers(25.0, 0.95 * fs / 2.0);
         assert!(
             !points.is_empty(),
             "no 1/3-octave points fit in the FFT range"
@@ -377,7 +360,7 @@ mod tests {
     use super::*;
 
     fn solver() -> EqSolver {
-        EqSolver::new(BAND_FREQS.to_vec(), 1.41, 12.0, 0.05, 48_000.0, 2048)
+        EqSolver::new(BAND_FREQS.to_vec(), 1.41, 12.0, 0.05, 48_000.0)
     }
 
     #[test]
@@ -404,6 +387,14 @@ mod tests {
                 b.frequency,
                 b.gain_db
             );
+        }
+    }
+
+    #[test]
+    fn every_bass_band_is_a_point() {
+        let p = solver().points;
+        for f in [25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0] {
+            assert!(p.contains(&f), "{f} Hz missing: {p:?}");
         }
     }
 

@@ -35,6 +35,9 @@ pub struct Status {
     pub signature: leungo_eq::Signature,
     #[serde(default = "default_device_strength")]
     pub device_strength: f64,
+    /// `eq.per_band_punch`, switchable live from the dashboard.
+    #[serde(default)]
+    pub punch: bool,
 }
 
 fn default_device_strength() -> f64 {
@@ -59,6 +62,7 @@ impl Default for Status {
             reliability: 0.0,
             signature: leungo_eq::Signature::default(),
             device_strength: default_device_strength(),
+            punch: false,
         }
     }
 }
@@ -138,7 +142,15 @@ fn read_tuning(path: &std::path::Path) -> Option<Option<crate::config::Preset>> 
 
 /// Parses the sound file: `{"bass":..,"warmth":..,"presence":..,"air":..,
 /// "device":..}`. Missing keys are 0 (device: 0.6); values are clamped.
-fn read_signature(path: &std::path::Path) -> Option<(leungo_eq::Signature, f64)> {
+/// What the dashboard's Sound card writes. `punch` is `None` in files from
+/// before it existed, so the config value stays.
+struct Sound {
+    sig: leungo_eq::Signature,
+    device: f64,
+    punch: Option<bool>,
+}
+
+fn read_signature(path: &std::path::Path) -> Option<Sound> {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
     let f = |k: &str, d: f64| v.get(k).and_then(|x| x.as_f64()).unwrap_or(d);
     let sig = leungo_eq::Signature {
@@ -154,7 +166,8 @@ fn read_signature(path: &std::path::Path) -> Option<(leungo_eq::Signature, f64)>
     } else {
         0.6
     };
-    Some((sig, device))
+    let punch = v.get("punch").and_then(|x| x.as_f64()).map(|x| x >= 0.5);
+    Some(Sound { sig, device, punch })
 }
 
 impl Engine {
@@ -177,6 +190,7 @@ impl Engine {
             st.tuning = tuning.map_or("custom", |p| p.as_str()).into();
             st.signature = cfg.eq.signature.clamped();
             st.device_strength = cfg.eq.device_strength.clamp(0.0, 1.0);
+            st.punch = cfg.eq.per_band_punch;
         }
         let fs = cfg.capture.rate as f64;
         let solver = EqSolver::new(
@@ -185,7 +199,6 @@ impl Engine {
             cfg.eq.clamp_db,
             cfg.eq.ridge,
             fs,
-            cfg.analysis.fft_size,
         );
         let mut analyzer = SpectrumAnalyzer::new(
             cfg.analysis.fft_size,
@@ -361,23 +374,29 @@ impl Engine {
         let Some(path) = self.signature_path.as_ref() else {
             return;
         };
-        let Some((sig, device)) = read_signature(path) else {
+        let Some(Sound { sig, device, punch }) = read_signature(path) else {
             return;
         };
-        if sig == self.cfg.eq.signature && (device - self.cfg.eq.device_strength).abs() < 1e-9 {
+        let punch = punch.unwrap_or(self.cfg.eq.per_band_punch);
+        if sig == self.cfg.eq.signature
+            && (device - self.cfg.eq.device_strength).abs() < 1e-9
+            && punch == self.cfg.eq.per_band_punch
+        {
             return;
         }
         // base_cfg too, so a later tuning change does not undo it
         for c in [&mut self.cfg, &mut self.base_cfg] {
             c.eq.signature = sig;
             c.eq.device_strength = device;
+            c.eq.per_band_punch = punch;
         }
         {
             let mut st = self.status.lock().unwrap();
             st.signature = sig;
             st.device_strength = device;
+            st.punch = punch;
         }
-        tracing::info!("sound: {sig:?} device {device:.2}");
+        tracing::info!("sound: {sig:?} device {device:.2} punch {punch}");
         // Heard at once, not after the next refinement pass.
         if self.state == State::Active && self.last_applied.is_some() {
             let (gains, archetype, confidence) =

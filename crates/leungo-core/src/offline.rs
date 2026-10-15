@@ -63,10 +63,21 @@ fn percussiveness(transient: f64) -> f64 {
     ((transient - 0.15) / (0.45 - 0.15)).clamp(0.0, 1.0)
 }
 
-/// Maps a band's drum share to 0..=1: mostly tones gives 0, mostly hits 1.
-/// Ends *unverified* on real music; the shares are logged per track.
+/// Maps a band's drum share to 0..=1. Only clearly drum-led bands count:
+/// short bass notes read partly percussive too. Ends *unverified*.
 fn punch(share: f64) -> f64 {
-    ((share - 0.3) / (0.7 - 0.3)).clamp(0.0, 1.0)
+    ((share - 0.4) / (0.75 - 0.4)).clamp(0.0, 1.0)
+}
+
+/// Where drum attack lives: kick 40-125 Hz and click/snare 2-5 kHz, each
+/// fading out over half an octave. Zero from 180 Hz to 1.4 kHz, so low-mid
+/// boom is always cut like before.
+fn attack_zone(f: f64) -> f64 {
+    let zone = |lo: f64, hi: f64| {
+        let outside = (lo / f).log2().max((f / hi).log2()).max(0.0);
+        (1.0 - outside / 0.5).max(0.0)
+    };
+    zone(40.0, 125.0).max(zone(2000.0, 5000.0))
 }
 
 /// 1 at the bass (<=125 Hz) and treble (>=6 kHz) ends, 0 through the mids,
@@ -105,9 +116,9 @@ pub fn solve_gains(
     match meas.percussive.as_deref() {
         Some(share) if cfg.eq.per_band_punch && share.len() == shaped.len() => {
             // bumps only (they get cut); a dip can still be lifted
-            for (v, &p) in shaped.iter_mut().zip(share) {
+            for ((v, &p), &f) in shaped.iter_mut().zip(share).zip(points) {
                 if *v > 0.0 {
-                    *v *= 1.0 - relief * punch(p);
+                    *v *= 1.0 - relief * punch(p) * attack_zone(f);
                 }
             }
         }
@@ -203,7 +214,6 @@ pub fn analyze_samples(samples: &[f64], fs: f64, cfg: &Config) -> Result<Offline
         cfg.eq.clamp_db,
         cfg.eq.ridge,
         fs,
-        cfg.analysis.fft_size,
     );
     let cap = analyzer.frames_for(cfg.analysis.shape_window_s.max(30.0));
     analyzer.enable_band_tracker(&solver.points, cap);
@@ -276,7 +286,6 @@ mod tests {
             cfg.eq.clamp_db,
             cfg.eq.ridge,
             48_000.0,
-            cfg.analysis.fft_size,
         )
     }
 
@@ -397,6 +406,17 @@ mod tests {
             drums[0],
             tonal[0]
         );
+    }
+
+    #[test]
+    fn attack_zone_spares_the_low_mids() {
+        for f in [40.0, 63.0, 80.0, 125.0, 2500.0, 4000.0] {
+            assert_eq!(attack_zone(f), 1.0, "{f} Hz");
+        }
+        for f in [200.0, 250.0, 315.0, 400.0, 500.0, 1000.0, 10_000.0] {
+            assert_eq!(attack_zone(f), 0.0, "{f} Hz");
+        }
+        assert!((0.0..1.0).contains(&attack_zone(160.0)));
     }
 
     #[test]

@@ -594,7 +594,7 @@ fn sound_json(query: &str) -> Option<String> {
     let mut out = serde_json::Map::new();
     for pair in query.split('&').filter(|p| !p.is_empty()) {
         let (k, v) = pair.split_once('=')?;
-        if !["bass", "warmth", "presence", "air", "device"].contains(&k) {
+        if !["bass", "warmth", "presence", "air", "device", "punch"].contains(&k) {
             continue;
         }
         let n: f64 = v.parse().ok()?;
@@ -706,6 +706,7 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
             "presence": status.signature.presence_db,
             "air": status.signature.air_db,
             "device": status.device_strength,
+            "punch": status.punch,
         },
         "state": status.state,
         "bypassed": status.bypassed,
@@ -754,6 +755,12 @@ mod tests {
         assert!(sound_json("bass=NaN").is_none());
         assert!(sound_json("bass").is_none());
         assert_eq!(sound_json("").unwrap(), "{}");
+        let v: serde_json::Value =
+            serde_json::from_str(&sound_json("punch=1&bass=2").unwrap()).unwrap();
+        assert_eq!(
+            (v["punch"].as_f64(), v["bass"].as_f64()),
+            (Some(1.0), Some(2.0))
+        );
     }
 
     #[test]

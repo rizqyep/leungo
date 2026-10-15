@@ -3,6 +3,23 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.1.6
+
+### Song analysis
+
+- The 31.5, 40 and 80 Hz bands are now measured on their own. Before,
+  they were skipped, so kick and bass around 80 Hz were only guessed from
+  the neighbouring bands, and bass corrections really started at 50 Hz.
+
+### Drum attack (test)
+
+- New switch in the dashboard's Sound card. It keeps kick and snare hits
+  from being trimmed while boomy bass lines and low mids still are, so
+  you get the attack without a cloudy low end.
+- It only acts on clear drum hits in the kick (40-125 Hz) and click/snare
+  (2-5 kHz) ranges; 150-500 Hz is never spared.
+- Flips live on the current song, so you can compare. Off by default.
+
 ## v0.1.5
 
 ### Headphone correction
