@@ -19,7 +19,7 @@ injects system-wide audio differently:
 |---|---|---|
 | Linux (PipeWire or PulseAudio) | EasyEffects | Working (MVP) |
 | Windows | Equalizer APO config generation | Planned |
-| macOS | In-process DSP via BlackHole (planned) | Not working yet |
+| macOS (Apple silicon) | In-process DSP via BlackHole | Experimental: builds and passes tests in CI, audio not yet verified on hardware |
 
 ## How it works
 
@@ -82,7 +82,7 @@ licensing of the underlying measurement data was not checked.
 | Platform | State |
 |---|---|
 | Linux (PipeWire or PulseAudio) | Works. Tested on Fedora with PipeWire and EasyEffects 8. |
-| macOS | Not working yet, see below. |
+| macOS (Apple silicon) | Experimental, see below. |
 
 ### Linux
 
@@ -122,18 +122,81 @@ The config is created on first run; `leungo config-path` prints where.
 There is no autostart unit yet, so start the daemon yourself or from your
 desktop's startup applications.
 
-### macOS
+### macOS (experimental)
 
-macOS is not supported yet, and building there will not give you a working
-equalizer today. Two parts of the program are Linux-only: the capture uses the
-PulseAudio API and the EQ is applied through EasyEffects. Whether the workspace
-even compiles on macOS has not been tested.
+What is verified: the code builds on an Apple silicon runner in CI, its
+clippy and test suites pass there, and the resampling, drift control and
+filter chain are covered by unit tests. What is not verified: real audio on
+real hardware. Expect rough edges and please report them.
 
-The planned design, not yet implemented: capture from the BlackHole virtual
-device (`brew install blackhole-2ch`), apply the 8 filters in-process, and play
-to the real output; track hints would come from AppleScript polling of Spotify
-and Music. If you want to follow or help with that, it is item 2 in the
-roadmap.
+How it works there: there is no EasyEffects on macOS, so leungo captures a
+virtual loopback device (BlackHole), equalizes in process, and plays the result
+to your real output device. Track information comes from polling Spotify and
+Music with AppleScript.
+
+Prerequisites:
+
+```sh
+xcode-select --install                    # compiler and linker
+curl https://sh.rustup.rs -sSf | sh       # Rust 1.85 or newer
+brew install --cask blackhole-2ch         # the loopback device
+```
+
+Build and install:
+
+```sh
+git clone https://github.com/rizqyep/leungo.git
+cd leungo
+cargo build --release -p leungo-cli
+install -Dm755 target/release/leungo ~/.local/bin/leungo   # or any folder on PATH
+```
+
+Set it up:
+
+1. In System Settings, Sound, choose **BlackHole 2ch** as the output. Everything
+   you play now goes to BlackHole instead of your speakers.
+2. Run `leungo devices` and note the exact name of your real output (the
+   speakers or headphones you actually listen on).
+3. Run `leungo config-path`, open that file, and set that name in the
+   `[standalone]` section:
+
+   ```toml
+   [standalone]
+   input_device = "BlackHole"
+   output_device = "MacBook Pro Speakers"   # a part of the name is enough
+   latency_ms = 60
+   ```
+
+   If `output_device` is empty, leungo plays to the system default output. That
+   is BlackHole in step 1, which would feed back, so it refuses to start and
+   lists your devices.
+4. Run `leungo gui`.
+
+Permissions macOS will ask for the first time:
+
+- **Microphone**: capturing from an input device counts as microphone access.
+  Allow it for the terminal you run `leungo` from.
+- **Automation**: controlling Spotify or Music so track titles and track
+  changes can be read. Without it leungo still works and falls back to
+  detecting silence gaps between tracks.
+
+Known limitations:
+
+- With the output set to BlackHole the keyboard volume keys do not change the
+  loudness. Use the volume control in your player. (BlackHole has no volume
+  control of its own; this is how loopback devices behave, not verified here.)
+- The processing adds about the configured `latency_ms` of delay. That is fine
+  for music and noticeable on video.
+- Only 32-bit float devices are supported, which is what CoreAudio normally
+  offers.
+- The two devices run on separate clocks. A small controller absorbs the
+  difference; it is unit-tested against simulated drift but not yet heard on
+  hardware, so occasional clicks are possible.
+- A config from an earlier build lives under
+  `~/Library/Application Support/leungo`.
+
+If something fails, `leungo devices` and the first lines of the daemon output
+are the most useful things to include in a report.
 
 ## Usage
 
@@ -287,7 +350,8 @@ crates/
   leungo-analysis          FFT spectrum, features, track detector, classifier
   leungo-core              config, engine state machine, traits, offline analysis
   leungo-capture-pipewire  monitor capture via the PulseAudio API
-  leungo-players             track changes and now-playing from MPRIS players
+  leungo-players             track changes and now-playing: MPRIS (Linux), AppleScript (macOS)
+  leungo-standalone          macOS engine: loopback capture, resampling, in-process filters
   leungo-applier-ee        EasyEffects preset writer/loader + bypass
   leungo-cli               the leungo binary
 ```
@@ -313,7 +377,7 @@ writer without touching the engine.
 ## Roadmap
 
 1. Windows: WASAPI loopback capture + Equalizer APO config writer
-2. macOS: CoreAudio tap capture + BlackHole/eqMac applier
+2. macOS: verify the standalone engine on hardware, add a menu-bar item and a signed app bundle
 3. ML archetype classifier (ONNX runtime, distilled model)
 4. Library pre-scan cache for instant presets on known tracks
 5. Native window front end (egui) beside the web GUI; needs GUI dev headers
