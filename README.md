@@ -1,4 +1,11 @@
-# leungo
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/svg/leungo-lockup-on-dark.svg">
+    <img alt="leungo" src="assets/brand/svg/leungo-lockup.svg" height="64">
+  </picture>
+</p>
+
+Leungo is Acehnese for "listen".
 
 An adaptive per-track parametric EQ. It listens to whatever your system is
 playing, estimates the track's spectral balance and musical character at the
@@ -106,6 +113,10 @@ Make sure `~/.local/bin` is on your `PATH`, then:
 2. Run `leungo gui`. The dashboard opens at `http://127.0.0.1:8431`.
 3. Optional: set your headphone profile, see "Device profile", and pick a
    tuning preset in the dashboard.
+
+If you used an earlier build called adaptive-eq, your config, track log and
+settings are moved to the new `leungo` directories automatically the first
+time you run `leungo`.
 
 The config is created on first run; `leungo config-path` prints where.
 There is no autostart unit yet, so start the daemon yourself or from your
@@ -233,6 +244,32 @@ Presets bundle eight settings: `eq.strength`, `eq.deadzone_db`, `eq.residual_cap
 Choose a preset in the dashboard dropdown or run `leungo tuning conservative|balanced|aggressive|custom`. With no argument, the command prints the current preset. A running daemon applies the change within about a second and re-solves immediately. `custom` uses the values written in the config file. A `tuning = "balanced"` line at the top of the config sets the default preset.
 
 The values are starting points that have not been tuned by listening.
+
+## Sound
+
+The dashboard has a Sound card with presets (Neutral, Punch & air, Warm,
+Bright, V-shape), four controls and a device-correction slider.
+
+- `bass`: -6 to +8 dB, low shelf below about 110 Hz.
+- `warmth`: -4 to +4 dB, bump near 220 Hz.
+- `presence`: -4 to +4 dB, bump near 3 kHz.
+- `air`: -4 to +6 dB, high shelf from about 5.5 kHz. The highest of the 8
+  bands is 8 kHz, so a shelf cannot start higher.
+- Device correction: 0 to 100% (`eq.device_strength`, default 0.6). It scales
+  how much of the headphone correction is applied.
+
+The sound controls are applied on top of the correction and take effect
+within about a second. They are shifted so the signature never adds a net
+boost, so they add no extra clipping risk.
+
+`leungo sound` prints the current values. `leungo sound --bass 4 --air 3
+--device 0.6` sets them. Negative values work, for example `--warmth -2`.
+
+The values are stored in the config under `[eq.signature]` as `bass_db`,
+`warmth_db`, `presence_db` and `air_db`.
+
+The dashboard tuning buttons are labelled Gentle, Balanced, Bold and Custom.
+They map to the conservative, balanced, aggressive and custom presets.
 
 ## Fitting to your listening
 
