@@ -70,6 +70,7 @@ pub fn driver_present(_input_device: &str) -> bool {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum Blocker {
     Driver,
     Output,
@@ -116,6 +117,14 @@ pub fn blocker(loopback: &str, wanted_output: &str) -> Option<Blocker> {
 #[cfg(not(target_os = "macos"))]
 pub fn blocker(_loopback: &str, _wanted_output: &str) -> Option<Blocker> {
     None
+}
+
+/// A saved choice is either a device's exact name or a fragment of one, as
+/// `[standalone]` allows.
+pub fn is_known_device(names: &[String], choice: &str) -> bool {
+    !choice.is_empty()
+        && (names.iter().any(|n| n == choice)
+            || any_matches(names.iter().map(String::as_str), choice))
 }
 
 /// True when a device the running engine depends on has gone away. An empty
@@ -208,7 +217,19 @@ pub fn install_driver(progress: &dyn Fn(Phase, &str)) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{any_matches, is_blackhole, output_blocked};
+    use super::{any_matches, is_blackhole, is_known_device, output_blocked};
+
+    #[test]
+    fn accepts_exact_names_and_saved_fragments_only() {
+        let names = vec![
+            "BlackHole 2ch".to_string(),
+            "MacBook Air Microphone".to_string(),
+        ];
+        assert!(is_known_device(&names, "BlackHole 2ch"));
+        assert!(is_known_device(&names, "blackhole"));
+        assert!(!is_known_device(&names, ""));
+        assert!(!is_known_device(&names, "AB17X"));
+    }
 
     #[test]
     fn blocks_when_the_default_output_is_the_loopback_device() {

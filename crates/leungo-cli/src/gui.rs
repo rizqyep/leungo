@@ -371,7 +371,9 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
                 }
             }
             let valid = match (&input, &output) {
-                (Some(i), Some(o)) => choices.inputs.contains(i) && choices.outputs.contains(o),
+                (Some(i), Some(o)) => {
+                    crate::setup::is_known_device(&choices.inputs, i) && choices.outputs.contains(o)
+                }
                 _ => false,
             };
             if !valid {
