@@ -44,7 +44,9 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then V="${GITHUB_REF_NAME#v}"; else V=0.0.0-dev; fi
           mkdir -p dist
           cargo deb -p leungo-cli --no-build --deb-version "$V" --output "dist/leungo_${V}_amd64.deb"
-          cargo generate-rpm -p crates/leungo-cli -s "version = \"$V\"" -s 'release = "1"' -o dist/
+          # RPM versions cannot contain '-'; '~' is its pre-release separator.
+          RV="${V//-/\~}"
+          cargo generate-rpm -p crates/leungo-cli -s "version = \"$RV\"" -s 'release = "1"' -o dist/
           for f in dist/*.deb dist/*.rpm; do (cd dist && sha256sum "$(basename "$f")" > "$(basename "$f").sha256"); done
           ls -la dist
       - name: Check the deb installs and runs
