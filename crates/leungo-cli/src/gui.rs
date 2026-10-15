@@ -209,9 +209,12 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         return Ok(());
     }
 
-    let platform = crate::platform::setup(&mut cfg, stop.clone())?;
+    let mut platform = crate::platform::setup(&mut cfg, stop.clone())?;
     if let Some(r) = route.as_mut() {
         r.activate()?;
+        if let Some(set) = platform.set_makeup_db.take() {
+            r.sync_volume(&active, set, stop.clone());
+        }
     }
     let mut engine = Engine::new(
         cfg,
@@ -575,6 +578,7 @@ fn percent_decode(s: &str) -> String {
 fn restart_soon() {
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_millis(300));
+        let _ = crate::routing::restore_saved();
         let Ok(exe) = std::env::current_exe() else {
             return;
         };

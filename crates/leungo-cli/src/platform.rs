@@ -16,6 +16,7 @@ pub struct Platform {
     pub applier: Box<dyn EqApplier>,
     pub track_events: Option<Receiver<String>>,
     pub now_playing: Option<leungo_players::NowPlayingHandle>,
+    pub set_makeup_db: Option<Box<dyn Fn(f32) + Send>>,
 }
 
 fn players(
@@ -46,6 +47,7 @@ pub fn setup(cfg: &mut Config, _stop: Arc<AtomicBool>) -> Result<Platform> {
         applier: Box::new(applier),
         track_events,
         now_playing,
+        set_makeup_db: None,
     })
 }
 
@@ -81,11 +83,13 @@ pub fn setup(cfg: &mut Config, stop: Arc<AtomicBool>) -> Result<Platform> {
     cfg.capture.rate = running.input_rate;
     cfg.capture.channels = 2;
     let (track_events, now_playing) = players(cfg);
+    let makeup = running.makeup.clone();
     Ok(Platform {
         source: Box::new(running.source),
         applier: Box::new(running.applier),
         track_events,
         now_playing,
+        set_makeup_db: Some(Box::new(move |db| makeup.set_db(db))),
     })
 }
 

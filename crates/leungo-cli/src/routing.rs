@@ -62,7 +62,13 @@ fn write_original(path: &Path, name: &str) {
 pub struct Route {
     original: Option<String>,
     loopback_id: Option<u32>,
+    loopback_volume: Vec<(u32, f32)>,
 }
+
+#[cfg(target_os = "macos")]
+const BASELINE: f32 = 0.75;
+#[cfg(target_os = "macos")]
+const KEY_STEP: f32 = 1.0 / 16.0;
 
 #[cfg(target_os = "macos")]
 impl Route {
@@ -99,6 +105,7 @@ impl Route {
             Route {
                 original: Some(original),
                 loopback_id,
+                loopback_volume: Vec::new(),
             },
             real,
         ))
@@ -115,7 +122,58 @@ impl Route {
         Ok(())
     }
 
+    /// Keeps the loopback device at a fixed volume, makes up its attenuation
+    /// digitally, and moves each volume-key press onto the real output.
+    pub fn sync_volume(
+        &mut self,
+        real: &str,
+        set_makeup_db: Box<dyn Fn(f32) + Send>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        use leungo_standalone::route;
+        use std::sync::atomic::Ordering;
+        let Some(bh) = self.loopback_id else { return };
+        self.loopback_volume = route::volumes(bh);
+        if self.loopback_volume.is_empty() {
+            return;
+        }
+        let real = real.to_string();
+        let has_real_volume = route::find(&real).is_some_and(|o| !route::volumes(o.id).is_empty());
+        let baseline = if has_real_volume { BASELINE } else { 1.0 };
+        route::set_volume(bh, baseline);
+        let db = route::volume_db(bh).unwrap_or(0.0);
+        set_makeup_db(-db);
+        if !has_real_volume {
+            return;
+        }
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                let Some(now) = route::volumes(bh).first().map(|v| v.1) else {
+                    continue;
+                };
+                let steps = ((now - baseline) / KEY_STEP).round();
+                if steps == 0.0 {
+                    continue;
+                }
+                if let Some(dev) = route::find(&real) {
+                    let vols = route::volumes(dev.id);
+                    if !vols.is_empty() {
+                        let avg = vols.iter().map(|v| v.1).sum::<f32>() / vols.len() as f32;
+                        route::set_volume(dev.id, (avg + steps * KEY_STEP).clamp(0.0, 1.0));
+                    }
+                }
+                route::set_volume(bh, baseline);
+            }
+        });
+    }
+
     pub fn release(&mut self) {
+        if let Some(bh) = self.loopback_id
+            && let Some(&(_, v)) = self.loopback_volume.first()
+        {
+            leungo_standalone::route::set_volume(bh, v);
+        }
         let Some(name) = self.original.take() else {
             return;
         };
@@ -162,6 +220,14 @@ impl Route {
 
     pub fn activate(&mut self) -> Result<()> {
         Ok(())
+    }
+
+    pub fn sync_volume(
+        &mut self,
+        _real: &str,
+        _set_makeup_db: Box<dyn Fn(f32) + Send>,
+        _stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) {
     }
 }
 

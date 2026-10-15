@@ -121,6 +121,10 @@ pub fn find(name: &str) -> Option<Output> {
     })
 }
 
+pub fn device_names() -> Vec<String> {
+    all_devices().into_iter().filter_map(name_of).collect()
+}
+
 pub fn default_output() -> Option<Output> {
     let addr = address(
         kAudioHardwarePropertyDefaultOutputDevice,
@@ -152,4 +156,79 @@ pub fn set_default_output(id: u32) -> Result<()> {
         }
     }
     Ok(())
+}
+
+const VOLUME_ELEMENTS: [u32; 3] = [0, 1, 2];
+
+fn volume_address(element: u32) -> AudioObjectPropertyAddress {
+    AudioObjectPropertyAddress {
+        mSelector: kAudioDevicePropertyVolumeScalar,
+        mScope: kAudioObjectPropertyScopeOutput,
+        mElement: element,
+    }
+}
+
+pub fn volumes(id: u32) -> Vec<(u32, f32)> {
+    let mut out = Vec::new();
+    for el in VOLUME_ELEMENTS {
+        let addr = volume_address(el);
+        let mut v: f32 = 0.0;
+        let mut size = mem::size_of::<f32>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                id,
+                &addr,
+                0,
+                ptr::null(),
+                &mut size,
+                &mut v as *mut f32 as *mut c_void,
+            )
+        };
+        if status == 0 {
+            out.push((el, v));
+        }
+    }
+    out
+}
+
+pub fn set_volume(id: u32, value: f32) {
+    for el in VOLUME_ELEMENTS {
+        let addr = volume_address(el);
+        let mut settable: u8 = 0;
+        let ok = unsafe { AudioObjectIsPropertySettable(id, &addr, &mut settable) };
+        if ok != 0 || settable == 0 {
+            continue;
+        }
+        unsafe {
+            AudioObjectSetPropertyData(
+                id,
+                &addr,
+                0,
+                ptr::null(),
+                mem::size_of::<f32>() as u32,
+                &value as *const f32 as *const c_void,
+            );
+        }
+    }
+}
+
+pub fn volume_db(id: u32) -> Option<f32> {
+    let addr = AudioObjectPropertyAddress {
+        mSelector: kAudioDevicePropertyVolumeDecibels,
+        mScope: kAudioObjectPropertyScopeOutput,
+        mElement: 0,
+    };
+    let mut v: f32 = 0.0;
+    let mut size = mem::size_of::<f32>() as u32;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            id,
+            &addr,
+            0,
+            ptr::null(),
+            &mut size,
+            &mut v as *mut f32 as *mut c_void,
+        )
+    };
+    (status == 0).then_some(v)
 }

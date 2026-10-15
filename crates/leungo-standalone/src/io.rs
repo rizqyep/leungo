@@ -10,7 +10,7 @@ use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use leungo_core::{EqApplier, SampleSource, SourceEvent};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -34,7 +34,21 @@ pub struct DeviceEntry {
     pub output: bool,
 }
 
+/// Makes up for a loopback device whose own volume is below unity.
+#[derive(Clone)]
+pub struct Makeup {
+    shared: Arc<Shared>,
+}
+
+impl Makeup {
+    pub fn set_db(&self, db: f32) {
+        let gain = 10f32.powf(db.clamp(0.0, 30.0) / 20.0);
+        self.shared.makeup.store(gain.to_bits(), Ordering::Relaxed);
+    }
+}
+
 pub struct Running {
+    pub makeup: Makeup,
     pub source: StandaloneSource,
     pub applier: StandaloneApplier,
     pub input_rate: u32,
@@ -45,6 +59,7 @@ pub struct Running {
 }
 
 struct Shared {
+    makeup: AtomicU32,
     input: Mutex<VecDeque<f32>>,
     output: Mutex<VecDeque<f32>>,
     primed: AtomicBool,
@@ -162,8 +177,8 @@ fn pick_input(host: &cpal::Host, needle: &str) -> Result<cpal::Device> {
 
 fn pick_output(host: &cpal::Host, wanted: &str, loopback: &str) -> Result<cpal::Device> {
     if !wanted.is_empty() {
-        for d in host.output_devices().context("list output devices")? {
-            if contains_ci(&name_of(&d), wanted) {
+        for d in host.devices().context("list devices")? {
+            if contains_ci(&name_of(&d), wanted) && d.default_output_config().is_ok() {
                 return Ok(d);
             }
         }
@@ -304,6 +319,10 @@ fn bridge_loop(sh: &Shared, mut bridge: Bridge, tx: Sender<Vec<f32>>) {
         if block.is_empty() {
             continue;
         }
+        let makeup = f32::from_bits(sh.makeup.load(Ordering::Relaxed));
+        if makeup != 1.0 {
+            block.iter_mut().for_each(|v| *v *= makeup);
+        }
         // pre-EQ copy for the analysis
         if tx.send(block.clone()).is_err() {
             break;
@@ -331,6 +350,7 @@ fn bridge_loop(sh: &Shared, mut bridge: Bridge, tx: Sender<Vec<f32>>) {
 /// or the devices could not be opened.
 pub fn start(settings: Settings, stop: Arc<AtomicBool>) -> Result<Running> {
     let shared = Arc::new(Shared {
+        makeup: AtomicU32::new(1.0f32.to_bits()),
         input: Mutex::new(VecDeque::new()),
         output: Mutex::new(VecDeque::new()),
         primed: AtomicBool::new(false),
@@ -367,6 +387,9 @@ pub fn start(settings: Settings, stop: Arc<AtomicBool>) -> Result<Running> {
         .context("audio thread did not start")?
         .map_err(|e| anyhow::anyhow!(e))?;
     Ok(Running {
+        makeup: Makeup {
+            shared: shared.clone(),
+        },
         source: StandaloneSource { rx: chunk_rx },
         applier: StandaloneApplier { shared },
         input_rate: info.input_rate,

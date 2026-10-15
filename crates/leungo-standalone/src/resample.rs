@@ -1,11 +1,9 @@
-//! Streaming linear-interpolation resampler for interleaved stereo with a
-//! ratio that can change on every call, used both to convert between device
-//! sample rates and to absorb clock drift between two devices.
+//! Streaming cubic (Catmull-Rom) resampler for interleaved stereo with a
+//! ratio that can change on every call, used to convert between device sample
+//! rates.
 
 pub struct AdaptiveResampler {
-    /// Last input frame of the previous block (the interpolation anchor).
-    prev: [f32; 2],
-    /// Read position in input frames, relative to `prev` (0 is `prev`).
+    tail: Vec<[f32; 2]>,
     pos: f64,
     primed: bool,
 }
@@ -16,10 +14,19 @@ impl Default for AdaptiveResampler {
     }
 }
 
+fn catmull_rom(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    0.5 * (2.0 * p1
+        + (p2 - p0) * t
+        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+        + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3)
+}
+
 impl AdaptiveResampler {
     pub fn new() -> Self {
         Self {
-            prev: [0.0; 2],
+            tail: Vec::new(),
             pos: 0.0,
             primed: false,
         }
@@ -27,42 +34,47 @@ impl AdaptiveResampler {
 
     /// Resamples `input` (interleaved L/R) and appends to `out`. `ratio` is
     /// input frames consumed per output frame: 1.0 is a copy, 2.0 halves the
-    /// rate. Returns the number of output frames appended.
+    /// rate. Two frames are held back as lookahead. Returns the number of
+    /// output frames appended.
     pub fn process(&mut self, input: &[f32], ratio: f64, out: &mut Vec<f32>) -> usize {
         let frames = input.len() / 2;
         if frames == 0 {
             return 0;
         }
         if !self.primed {
-            // Position 0 is the anchor, which on the very first block is not a
-            // real frame. Start at position 1, the first real frame, so the
-            // stream neither begins with a repeated sample nor a click.
-            self.prev = [input[0], input[1]];
-            self.pos = 1.0;
+            self.tail = vec![[input[0], input[1]]; 2];
+            self.pos = 2.0;
             self.primed = true;
         }
         let ratio = ratio.clamp(0.25, 4.0);
+        let tail = std::mem::take(&mut self.tail);
+        let n = tail.len() + frames;
         let at = |i: usize, c: usize| -> f32 {
-            if i == 0 {
-                self.prev[c]
+            if i < tail.len() {
+                tail[i][c]
             } else {
-                input[(i - 1) * 2 + c]
+                input[(i - tail.len()) * 2 + c]
             }
         };
         let mut produced = 0;
-        while self.pos < frames as f64 {
+        while (self.pos.floor() as usize) + 2 < n {
             let i = self.pos.floor() as usize;
-            let frac = (self.pos - i as f64) as f32;
+            let t = (self.pos - i as f64) as f32;
             for c in 0..2 {
-                let a = at(i, c);
-                let b = at(i + 1, c);
-                out.push(a + (b - a) * frac);
+                out.push(catmull_rom(
+                    at(i - 1, c),
+                    at(i, c),
+                    at(i + 1, c),
+                    at(i + 2, c),
+                    t,
+                ));
             }
             produced += 1;
             self.pos += ratio;
         }
-        self.pos -= frames as f64;
-        self.prev = [input[(frames - 1) * 2], input[(frames - 1) * 2 + 1]];
+        let keep = 3.min(n);
+        self.tail = (n - keep..n).map(|i| [at(i, 0), at(i, 1)]).collect();
+        self.pos -= (n - keep) as f64;
         produced
     }
 }
@@ -93,9 +105,9 @@ mod tests {
         let input = ramp(100);
         let mut out = Vec::new();
         let n = r.process(&input, 1.0, &mut out);
-        // the last frame of a block is held back as the next anchor
-        assert_eq!(n, 99);
-        assert_eq!(out, input[..198].to_vec());
+        // two frames are held back as lookahead
+        assert_eq!(n, 98);
+        assert_eq!(out, input[..196].to_vec());
     }
 
     #[test]

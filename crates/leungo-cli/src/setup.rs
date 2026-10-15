@@ -104,12 +104,8 @@ pub fn blocker(loopback: &str, wanted_output: &str) -> Option<Blocker> {
     if !driver_present(loopback) {
         return Some(Blocker::Driver);
     }
-    let list = leungo_standalone::io::list_devices().ok()?;
-    let outputs: Vec<&str> = list
-        .iter()
-        .filter(|d| d.output)
-        .map(|d| d.name.as_str())
-        .collect();
+    let names = leungo_standalone::route::device_names();
+    let outputs: Vec<&str> = names.iter().map(String::as_str).collect();
     let default = leungo_standalone::io::default_output_name();
     output_blocked(&outputs, default.as_deref(), loopback, wanted_output).then_some(Blocker::Output)
 }

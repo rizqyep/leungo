@@ -87,7 +87,7 @@ curve, per-band sound controls, tuning presets and the capture device.
 | "Waiting for music" | Start playing in your music app. If it never changes, check that the Microphone permission is allowed for Leungo in System Settings, Privacy & Security. |
 | No sound at all | Close Leungo, then run `/Applications/Leungo.app/Contents/MacOS/leungo-bin restore` in Terminal to put the output back, and reopen Leungo. |
 | macOS says the app is "damaged" | Run `xattr -dr com.apple.quarantine /Applications/Leungo.app` once in Terminal, then open it again. |
-| The volume keys do nothing | While Leungo runs, your Mac's output is a virtual device with no volume control. Use the volume in your music app. |
+| Volume keys | They work as usual and change the volume of your headphones or speakers. |
 | Video looks slightly out of sync | Leungo adds about 60 ms of delay. It is not noticeable for music; quit Leungo while watching video if it bothers you. |
 | Headphones unplugged | Leungo moves to another output (such as the built-in speakers) and follows your Mac when you plug a device back in. |
 
@@ -373,6 +373,9 @@ and Music with AppleScript.
 macOS limitations:
 
 - The processing adds about the configured `latency_ms` of delay.
+- BlackHole keeps its own volume. Leungo sets it to a fixed level while running, makes
+  the difference up digitally, and moves each volume-key press onto the real output
+  device. Mute is passed through as silence.
 - Only 32-bit float devices are supported, which is what CoreAudio normally offers.
 - The two devices run on separate clocks. A small controller absorbs the difference; it
   is unit-tested against simulated drift, so occasional clicks are possible.
