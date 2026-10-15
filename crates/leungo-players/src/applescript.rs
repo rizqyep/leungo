@@ -125,15 +125,15 @@ mod imp {
                 loop {
                     // first player that reports something wins
                     let found = srcs.iter().find_map(query);
-                    if let Some((sig, info)) = found {
-                        if last.as_deref() != Some(sig.as_str()) {
-                            last = Some(sig.clone());
-                            if let Ok(mut n) = shared.lock() {
-                                *n = Some(info);
-                            }
-                            if tx.send(sig).is_err() {
-                                break;
-                            }
+                    if let Some((sig, info)) = found
+                        && last.as_deref() != Some(sig.as_str())
+                    {
+                        last = Some(sig.clone());
+                        if let Ok(mut n) = shared.lock() {
+                            *n = Some(info);
+                        }
+                        if tx.send(sig).is_err() {
+                            break;
                         }
                     }
                     std::thread::sleep(Duration::from_millis(1000));
