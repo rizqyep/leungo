@@ -148,7 +148,8 @@ Build and install:
 git clone https://github.com/rizqyep/leungo.git
 cd leungo
 cargo build --release -p leungo-cli
-install -Dm755 target/release/leungo ~/.local/bin/leungo   # or any folder on PATH
+mkdir -p ~/.local/bin
+install -m755 target/release/leungo ~/.local/bin/leungo   # or any folder on PATH
 ```
 
 Set it up:
@@ -266,6 +267,24 @@ bright_acoustic= [0.0, 0.0, 0.0, 0.0, 0.0, -0.5, -1.0, -1.0]
 neutral        = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 ```
 
+Other settings:
+
+```toml
+[gui]
+port = 8431
+open = "app"        # app: its own window, browser: a tab, none: print the address
+
+[standalone]        # macOS only
+input_device = "BlackHole"
+output_device = ""  # your real output; must not be the loopback device
+latency_ms = 60
+```
+
+`gui.open = "app"` uses a Chromium-family browser (Chrome, Chromium, Brave,
+Edge) in app mode when one is installed: a window with no tabs or address
+bar. It is still a browser process underneath, so it uses the browser's
+memory while open. Closing the window does not stop the daemon.
+
 Tuning tips:
 
 - If the adaptive layer fights your taste, adjust `targets`: positive values
@@ -350,8 +369,8 @@ crates/
   leungo-analysis          FFT spectrum, features, track detector, classifier
   leungo-core              config, engine state machine, traits, offline analysis
   leungo-capture-pipewire  monitor capture via the PulseAudio API
-  leungo-players             track changes and now-playing: MPRIS (Linux), AppleScript (macOS)
-  leungo-standalone          macOS engine: loopback capture, resampling, in-process filters
+  leungo-players           track changes and now-playing: MPRIS (Linux), AppleScript (macOS)
+  leungo-standalone        macOS engine: loopback capture, resampling, in-process filters
   leungo-applier-ee        EasyEffects preset writer/loader + bypass
   leungo-cli               the leungo binary
 ```
