@@ -4,3 +4,4 @@ Cargo.lock.orig
 /profiles/
 *.bak*
 .DS_Store
+/assets/*.zip
