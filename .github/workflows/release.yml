@@ -68,6 +68,7 @@ jobs:
     needs: [macos-dmg, linux-packages]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
@@ -78,7 +79,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la dist
+          # this version's section of CHANGELOG.md, without its heading
+          awk -v tag="## $GITHUB_REF_NAME" '$0 == tag {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), and Linux x86_64 packages (.deb, .rpm). See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Leungo $GITHUB_REF_NAME" \
-            --notes "Unsigned macOS build for Apple silicon (.dmg), and Linux x86_64 packages (.deb, .rpm). See the README for install steps. Audio has not been verified on all hardware; please report problems."
+            --notes-file notes.md
