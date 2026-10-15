@@ -45,7 +45,7 @@ jobs:
           mkdir -p dist
           cargo deb -p leungo-cli --no-build --deb-version "$V" --output "dist/leungo_${V}_amd64.deb"
           # RPM versions cannot contain '-'; '~' is its pre-release separator.
-          RV="${V//-/\~}"
+          RV="$(printf '%s' "$V" | tr '-' '~')"
           cargo generate-rpm -p crates/leungo-cli -s "version = \"$RV\"" -s 'release = "1"' -o dist/
           for f in dist/*.deb dist/*.rpm; do (cd dist && sha256sum "$(basename "$f")" > "$(basename "$f").sha256"); done
           ls -la dist
