@@ -124,6 +124,24 @@ desktop's startup applications.
 
 ### macOS (experimental)
 
+**Easiest: download the app.** Get `Leungo-<version>-macos-arm64.dmg` from the
+[Releases page](https://github.com/rizqyep/leungo/releases) (Apple silicon only).
+
+1. Open the `.dmg` and drag **Leungo.app** to Applications.
+2. The app is not signed with an Apple Developer ID, so the first launch is
+   blocked. Right-click **Leungo.app**, choose **Open**, then **Open** again.
+   If macOS says the app is "damaged", run this once in Terminal and retry:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Leungo.app
+   ```
+3. Install the loopback device: `brew install --cask blackhole-2ch`
+4. Follow "Set it up" below. Where it says `leungo ...`, run it as
+   `/Applications/Leungo.app/Contents/MacOS/leungo ...`.
+
+Checksums are published next to each download (`.sha256`). To build it
+yourself instead, use the steps under "Build and install".
+
 What is verified: the code builds on an Apple silicon runner in CI, its
 clippy and test suites pass there, and the resampling, drift control and
 filter chain are covered by unit tests. What is not verified: real audio on
@@ -176,7 +194,7 @@ Set it up:
 Permissions macOS will ask for the first time:
 
 - **Microphone**: capturing from an input device counts as microphone access.
-  Allow it for the terminal you run `leungo` from.
+  Allow it for Leungo (or for the terminal you run `leungo` from).
 - **Automation**: controlling Spotify or Music so track titles and track
   changes can be read. Without it leungo still works and falls back to
   detecting silence gaps between tracks.
