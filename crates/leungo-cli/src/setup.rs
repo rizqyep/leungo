@@ -47,6 +47,7 @@ pub fn is_blackhole(input_device: &str) -> bool {
     input_device.to_lowercase().contains("blackhole")
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn any_matches<'a>(mut names: impl Iterator<Item = &'a str>, needle: &str) -> bool {
     let needle = needle.to_lowercase();
     names.any(|n| n.to_lowercase().contains(&needle))
