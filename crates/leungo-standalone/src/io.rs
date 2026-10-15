@@ -42,7 +42,7 @@ pub struct Makeup {
 
 impl Makeup {
     pub fn set_db(&self, db: f32) {
-        let gain = 10f32.powf(db.clamp(0.0, 30.0) / 20.0);
+        let gain = 10f32.powf(db.clamp(0.0, 70.0) / 20.0);
         self.shared.makeup.store(gain.to_bits(), Ordering::Relaxed);
     }
 }

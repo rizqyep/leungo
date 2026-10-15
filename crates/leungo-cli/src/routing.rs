@@ -66,11 +66,6 @@ pub struct Route {
 }
 
 #[cfg(target_os = "macos")]
-const BASELINE: f32 = 0.75;
-#[cfg(target_os = "macos")]
-const KEY_STEP: f32 = 1.0 / 16.0;
-
-#[cfg(target_os = "macos")]
 impl Route {
     /// Nothing is switched before `activate`: an idle built-in speaker exposes
     /// no streams, so the engine has to open it first.
@@ -122,8 +117,9 @@ impl Route {
         Ok(())
     }
 
-    /// Keeps the loopback device at a fixed volume, makes up its attenuation
-    /// digitally, and moves each volume-key press onto the real output.
+    /// BlackHole's volume bar mirrors the real output's volume. Its
+    /// attenuation is made up digitally, and a key press (which moves
+    /// BlackHole's volume) is copied onto the real device.
     pub fn sync_volume(
         &mut self,
         real: &str,
@@ -138,32 +134,37 @@ impl Route {
             return;
         }
         let real = real.to_string();
-        let has_real_volume = route::find(&real).is_some_and(|o| !route::volumes(o.id).is_empty());
-        let baseline = if has_real_volume { BASELINE } else { 1.0 };
-        route::set_volume(bh, baseline);
-        let db = route::volume_db(bh).unwrap_or(0.0);
-        set_makeup_db(-db);
-        if !has_real_volume {
+        let average = |id: u32| -> Option<f32> {
+            let v = route::volumes(id);
+            (!v.is_empty()).then(|| v.iter().map(|x| x.1).sum::<f32>() / v.len() as f32)
+        };
+        let Some(real_id) = route::find(&real).map(|o| o.id) else {
             return;
-        }
+        };
+        let Some(start) = average(real_id) else {
+            route::set_volume(bh, 1.0);
+            return;
+        };
+        route::set_volume(bh, start);
+        set_makeup_db(-route::volume_db(bh).unwrap_or(0.0));
         std::thread::spawn(move || {
+            let mut last = start;
             while !stop.load(Ordering::Relaxed) {
                 std::thread::sleep(std::time::Duration::from_millis(40));
-                let Some(now) = route::volumes(bh).first().map(|v| v.1) else {
+                let Some(b) = route::volumes(bh).first().map(|v| v.1) else {
                     continue;
                 };
-                let steps = ((now - baseline) / KEY_STEP).round();
-                if steps == 0.0 {
+                let r = average(real_id).unwrap_or(last);
+                if (b - last).abs() > 0.004 {
+                    route::set_volume(real_id, b);
+                    last = b;
+                } else if (r - last).abs() > 0.004 {
+                    route::set_volume(bh, r);
+                    last = r;
+                } else {
                     continue;
                 }
-                if let Some(dev) = route::find(&real) {
-                    let vols = route::volumes(dev.id);
-                    if !vols.is_empty() {
-                        let avg = vols.iter().map(|v| v.1).sum::<f32>() / vols.len() as f32;
-                        route::set_volume(dev.id, (avg + steps * KEY_STEP).clamp(0.0, 1.0));
-                    }
-                }
-                route::set_volume(bh, baseline);
+                set_makeup_db(-route::volume_db(bh).unwrap_or(0.0));
             }
         });
     }

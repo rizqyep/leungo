@@ -373,9 +373,9 @@ and Music with AppleScript.
 macOS limitations:
 
 - The processing adds about the configured `latency_ms` of delay.
-- BlackHole keeps its own volume. Leungo sets it to a fixed level while running, makes
-  the difference up digitally, and moves each volume-key press onto the real output
-  device. Mute is passed through as silence.
+- BlackHole has a volume of its own. While Leungo runs, BlackHole's volume follows your
+  real output's volume, its attenuation is made up digitally, and each volume-key press
+  is copied onto the real output device. Mute is passed through as silence.
 - Only 32-bit float devices are supported, which is what CoreAudio normally offers.
 - The two devices run on separate clocks. A small controller absorbs the difference; it
   is unit-tested against simulated drift, so occasional clicks are possible.
