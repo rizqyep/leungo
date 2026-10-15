@@ -28,7 +28,7 @@ presets. It is off by default.
 | Platform | Status |
 |---|---|
 | macOS (Apple silicon) | Available as an app. Early release: please report problems. |
-| Linux (PipeWire or PulseAudio) | Working. Needs EasyEffects, built from source. |
+| Linux (PipeWire or PulseAudio) | Working. Needs EasyEffects. `.deb`, `.rpm` or build from source. |
 | Windows | Planned |
 
 ## Get started
@@ -53,8 +53,23 @@ puts your sound output back exactly as it was.
 
 ### Linux
 
-You need PipeWire (with `pipewire-pulse`) or PulseAudio, EasyEffects 7 or 8 with the
-`easyeffects` command on `PATH`, a Rust toolchain (1.85 or newer) and a C linker.
+**Easiest: install a package.** Download the `.deb` or `.rpm` for x86_64 from the
+[Releases page](https://github.com/rizqyep/leungo/releases):
+
+```sh
+sudo apt install ./leungo_<version>_amd64.deb        # Debian, Ubuntu, Mint
+sudo dnf install ./leungo-<version>-1.x86_64.rpm     # Fedora, RHEL and relatives
+```
+
+Both packages recommend `easyeffects`, which is what applies the equalizer. If it
+is missing, `leungo gui` shows a setup screen with the install command for your
+distribution (and `leungo setup` prints it); the dashboard continues by itself
+once EasyEffects is installed. Leungo does not install it for you, because that
+needs administrator rights.
+
+To build it yourself instead you need PipeWire (with `pipewire-pulse`) or
+PulseAudio, EasyEffects 7 or 8 with the `easyeffects` command on `PATH`, a Rust
+toolchain (1.85 or newer) and a C linker.
 
 ```sh
 git clone https://github.com/rizqyep/leungo.git

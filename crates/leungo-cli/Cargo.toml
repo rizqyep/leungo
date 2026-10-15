@@ -2,6 +2,10 @@
 name = "leungo-cli"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+description = "Adaptive equalizer that tunes itself to each song and output device"
+homepage = "https://github.com/rizqyep/leungo"
+repository = "https://github.com/rizqyep/leungo"
 
 [[bin]]
 name = "leungo"
@@ -29,3 +33,42 @@ leungo-capture-pipewire = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 leungo-standalone = { workspace = true, features = ["audio-io"] }
+
+# Linux packages, built in CI by cargo-deb and cargo-generate-rpm.
+# Paths are relative to this crate, except target/ which both tools resolve
+# against the workspace build directory.
+[package.metadata.deb]
+name = "leungo"
+maintainer = "Rizqy EP <rizqyepr@gmail.com>"
+section = "sound"
+priority = "optional"
+depends = "$auto"
+recommends = "easyeffects"
+extended-description = """\
+Leungo measures the music that is playing and applies a gentle, bounded \
+equalizer correction on top of an optional per-device curve. On Linux it \
+captures the EasyEffects sink and writes an EasyEffects preset."""
+assets = [
+    ["target/release/leungo", "usr/bin/leungo", "755"],
+    ["../../packaging/linux/leungo.desktop", "usr/share/applications/leungo.desktop", "644"],
+    ["../../assets/brand/png/leungo-256.png", "usr/share/icons/hicolor/256x256/apps/leungo.png", "644"],
+    ["../../assets/brand/png/leungo-48.png", "usr/share/icons/hicolor/48x48/apps/leungo.png", "644"],
+    ["../../LICENSE", "usr/share/doc/leungo/copyright", "644"],
+    ["../../README.md", "usr/share/doc/leungo/README.md", "644"],
+]
+
+[package.metadata.generate-rpm.recommends]
+easyeffects = "*"
+
+[package.metadata.generate-rpm]
+name = "leungo"
+summary = "Adaptive equalizer that tunes itself to each song and output device"
+url = "https://github.com/rizqyep/leungo"
+assets = [
+    { source = "target/release/leungo", dest = "/usr/bin/leungo", mode = "755" },
+    { source = "packaging/linux/leungo.desktop", dest = "/usr/share/applications/leungo.desktop", mode = "644" },
+    { source = "assets/brand/png/leungo-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/leungo.png", mode = "644" },
+    { source = "assets/brand/png/leungo-48.png", dest = "/usr/share/icons/hicolor/48x48/apps/leungo.png", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/leungo/LICENSE", mode = "644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/leungo/README.md", mode = "644", doc = true },
+]

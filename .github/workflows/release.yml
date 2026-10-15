@@ -3,6 +3,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Builds and checks the packages without publishing anything.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,11 +18,65 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p leungo-cli
       - name: Package
-        run: packaging/macos/build-dmg.sh "${GITHUB_REF_NAME#v}" dist
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then V="${GITHUB_REF_NAME#v}"; else V=0.0.0-dev; fi
+          packaging/macos/build-dmg.sh "$V" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/*
+
+  linux-packages:
+    # Built on the oldest runner image still offered so the binary links
+    # against an older glibc and runs on more distributions.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpulse-dev
+      - name: Packaging tools
+        run: cargo install --locked cargo-deb cargo-generate-rpm
+      - run: cargo build --release -p leungo-cli
+      - name: Package
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then V="${GITHUB_REF_NAME#v}"; else V=0.0.0-dev; fi
+          mkdir -p dist
+          cargo deb -p leungo-cli --no-build --deb-version "$V" --output "dist/leungo_${V}_amd64.deb"
+          cargo generate-rpm -p crates/leungo-cli -s "version = \"$V\"" -s 'release = "1"' -o dist/
+          for f in dist/*.deb dist/*.rpm; do (cd dist && sha256sum "$(basename "$f")" > "$(basename "$f").sha256"); done
+          ls -la dist
+      - name: Check the deb installs and runs
+        run: |
+          sudo apt-get install -y ./dist/*.deb
+          dpkg -s leungo | grep -E '^(Package|Version|Depends|Recommends)'
+          leungo setup
+      - name: Check the rpm installs and runs on Fedora
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:latest sh -c \
+            'dnf install -y --setopt=install_weak_deps=False /dist/*.rpm && rpm -qi leungo | head -3 && leungo setup'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [macos-dmg, linux-packages]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -la dist
           gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
             --title "Leungo $GITHUB_REF_NAME" \
-            --notes "Unsigned macOS build for Apple silicon. See the README for install steps and the first-launch Gatekeeper workaround. Audio has not been verified on all hardware; please report problems."
+            --notes "Unsigned macOS build for Apple silicon (.dmg), and Linux x86_64 packages (.deb, .rpm). See the README for install steps. Audio has not been verified on all hardware; please report problems."

@@ -82,6 +82,8 @@ pub struct SetupShared {
     pub install: Arc<Mutex<crate::setup::Install>>,
     pub driver: String,
     pub blocker: crate::setup::Blocker,
+    /// What to run to fix it, for blockers the dashboard cannot fix itself.
+    pub hint: String,
 }
 
 fn bind(port: u16) -> Result<TcpListener> {
@@ -104,14 +106,26 @@ fn serve_once(listener: &TcpListener, shared: &GuiShared) {
     }
 }
 
+/// What the setup screen is waiting for, and how to tell it is over.
+struct SetupWait<'a> {
+    blocker: crate::setup::Blocker,
+    hint: &'a str,
+    done: &'a dyn Fn() -> bool,
+}
+
 fn wait_for_setup(
     listener: &TcpListener,
     devices: (&str, &str),
-    blocker: crate::setup::Blocker,
+    wait: SetupWait<'_>,
     stop: &AtomicBool,
     presence: &Arc<Presence>,
     quit_on_close: bool,
 ) -> Result<()> {
+    let SetupWait {
+        blocker,
+        hint,
+        done,
+    } = wait;
     let driver = devices.0;
     let shared = GuiShared {
         status: Arc::new(Mutex::new(Status::default())),
@@ -124,6 +138,7 @@ fn wait_for_setup(
             install: Arc::new(Mutex::new(crate::setup::Install::default())),
             driver: driver.to_string(),
             blocker,
+            hint: hint.to_string(),
         }),
         devices: (devices.0.to_string(), devices.1.to_string()),
         active: devices.1.to_string(),
@@ -138,7 +153,7 @@ fn wait_for_setup(
         }
         if last_check.elapsed() >= Duration::from_secs(2) {
             last_check = std::time::Instant::now();
-            if crate::setup::blocker(devices.0, devices.1).is_none() {
+            if done() {
                 break;
             }
         }
@@ -180,13 +195,39 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         wait_for_setup(
             &listener,
             (&devices.0, output),
-            blocker,
+            SetupWait {
+                blocker,
+                hint: "",
+                done: &|| crate::setup::blocker(&devices.0, output).is_none(),
+            },
             &stop,
             &presence,
             quit_on_close,
         )
     };
 
+    #[cfg(target_os = "linux")]
+    if crate::setup::effects_missing(&cfg.applier.command) {
+        let hint = crate::setup::current_install_hint();
+        println!("leungo GUI: {url}  (EasyEffects is not installed: {hint})");
+        if open_browser {
+            open_window(&url, &gui_open);
+            already_open = true;
+        }
+        let command = cfg.applier.command.clone();
+        wait_for_setup(
+            &listener,
+            ("", ""),
+            SetupWait {
+                blocker: crate::setup::Blocker::Effects,
+                hint: &hint,
+                done: &|| !crate::setup::effects_missing(&command),
+            },
+            &stop,
+            &presence,
+            quit_on_close,
+        )?;
+    }
     if !crate::setup::driver_present(&devices.0) {
         wait(crate::setup::Blocker::Driver, &devices.1, &mut already_open)?;
     }
@@ -624,6 +665,7 @@ fn setup_json(setup: &SetupShared) -> serde_json::Value {
         "driver": setup.driver,
         "blocker": setup.blocker.as_str(),
         "canInstall": crate::setup::is_blackhole(&setup.driver),
+        "hint": setup.hint,
         "phase": cur.phase.as_str(),
         "detail": cur.detail,
     })

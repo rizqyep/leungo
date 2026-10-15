@@ -197,8 +197,18 @@ fn restore_cmd() -> Result<()> {
 }
 
 fn setup_cmd() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let cfg = paths::load_or_create_config()?;
+        if setup::effects_missing(&cfg.applier.command) {
+            println!("EasyEffects ({}) was not found.", cfg.applier.command);
+            println!("Install it with: {}", setup::current_install_hint());
+        } else {
+            println!("EasyEffects ({}): found.", cfg.applier.command);
+            println!("Nothing else to set up: leungo captures the PipeWire monitor directly.");
+        }
+    }
     if !cfg!(target_os = "macos") {
-        println!("nothing to set up: on Linux leungo captures the PipeWire monitor directly.");
         return Ok(());
     }
     let mut cfg = paths::load_or_create_config()?;

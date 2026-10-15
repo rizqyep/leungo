@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Leungo
+Comment=Adaptive equalizer that tunes itself to each song and output device
+Exec=leungo gui
+Icon=leungo
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;
+Keywords=equalizer;eq;audio;

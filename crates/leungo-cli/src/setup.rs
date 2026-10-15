@@ -74,6 +74,9 @@ pub fn driver_present(_input_device: &str) -> bool {
 pub enum Blocker {
     Driver,
     Output,
+    /// Linux: the EasyEffects program leungo drives is not installed.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Effects,
 }
 
 impl Blocker {
@@ -81,8 +84,64 @@ impl Blocker {
         match self {
             Blocker::Driver => "driver",
             Blocker::Output => "output",
+            Blocker::Effects => "effects",
         }
     }
+}
+
+/// True when `command` (how leungo starts EasyEffects) can be found.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn command_in_path(command: &str, path: &std::ffi::OsStr) -> bool {
+    if command.is_empty() {
+        return false;
+    }
+    if command.contains('/') {
+        return Path::new(command).is_file();
+    }
+    std::env::split_paths(path).any(|dir| dir.join(command).is_file())
+}
+
+#[cfg(target_os = "linux")]
+pub fn effects_missing(command: &str) -> bool {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    !command_in_path(command, &path)
+}
+
+/// The command that installs EasyEffects, chosen from the contents of
+/// /etc/os-release (`ID` and `ID_LIKE`).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn install_hint(os_release: &str) -> String {
+    let mut ids: Vec<String> = Vec::new();
+    for line in os_release.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key == "ID" || key == "ID_LIKE" {
+            ids.extend(
+                value
+                    .trim_matches('"')
+                    .split_whitespace()
+                    .map(|s| s.to_lowercase()),
+            );
+        }
+    }
+    let has = |names: &[&str]| ids.iter().any(|i| names.contains(&i.as_str()));
+    if has(&["fedora", "rhel", "centos"]) {
+        "sudo dnf install easyeffects".into()
+    } else if has(&["debian", "ubuntu"]) {
+        "sudo apt install easyeffects".into()
+    } else if has(&["arch"]) {
+        "sudo pacman -S easyeffects".into()
+    } else if has(&["opensuse", "suse", "sles"]) {
+        "sudo zypper install easyeffects".into()
+    } else {
+        "install the \"easyeffects\" package with your package manager".into()
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn current_install_hint() -> String {
+    install_hint(&std::fs::read_to_string("/etc/os-release").unwrap_or_default())
 }
 
 #[derive(Default)]
@@ -227,7 +286,9 @@ pub fn install_driver(progress: &dyn Fn(Phase, &str)) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{any_matches, is_blackhole, is_known_device, output_blocked};
+    use super::{
+        any_matches, command_in_path, install_hint, is_blackhole, is_known_device, output_blocked,
+    };
 
     #[test]
     fn accepts_exact_names_and_saved_fragments_only() {
@@ -277,5 +338,39 @@ mod tests {
         assert!(is_blackhole("BlackHole"));
         assert!(is_blackhole("blackhole 2ch"));
         assert!(!is_blackhole("Loopback Audio"));
+    }
+
+    #[test]
+    fn finds_a_command_on_the_path_only_when_the_file_exists() {
+        let dir = std::env::temp_dir().join(format!("leungo-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("easyeffects"), b"").unwrap();
+        let path = std::env::join_paths([&dir]).unwrap();
+        assert!(command_in_path("easyeffects", &path));
+        assert!(!command_in_path("not-installed", &path));
+        assert!(!command_in_path("", &path));
+        assert!(command_in_path(
+            dir.join("easyeffects").to_str().unwrap(),
+            &path
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn picks_the_install_command_for_the_distribution() {
+        assert_eq!(
+            install_hint("NAME=Fedora\nID=fedora\nVERSION_ID=44\n"),
+            "sudo dnf install easyeffects"
+        );
+        assert_eq!(
+            install_hint("ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n"),
+            "sudo apt install easyeffects"
+        );
+        assert_eq!(
+            install_hint("ID=endeavouros\nID_LIKE=arch\n"),
+            "sudo pacman -S easyeffects"
+        );
+        assert!(install_hint("ID=plan9\n").contains("package manager"));
+        assert!(install_hint("").contains("package manager"));
     }
 }
