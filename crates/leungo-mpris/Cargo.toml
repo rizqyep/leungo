@@ -1,0 +1,9 @@
+[package]
+name = "leungo-mpris"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+zbus = "5"
+anyhow = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,10 @@
+[package]
+name = "leungo-analysis"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-eq = { workspace = true }
+realfft = { workspace = true }
+serde = { workspace = true }
+num-complex = "0.4"

@@ -1,8 +1,5 @@
 # leungo
 
-The project is named leungo; the command-line tool and the crates are still
-called `adaptive-eq`.
-
 An adaptive per-track parametric EQ. It listens to whatever your system is
 playing, estimates the track's spectral balance and musical character at the
 start of each song, and retunes an 8-band parametric EQ so you stop
@@ -51,7 +48,7 @@ The track's own spectral tilt is fitted with a robust line (median of pairwise s
 
 ## Device profile
 
-Run `adaptive-eq device <files>` with one or more AutoEq `ParametricEQ.txt`
+Run `leungo device <files>` with one or more AutoEq `ParametricEQ.txt`
 files of your headphones or IEMs. Several sources are averaged, so one unit or
 coupler does not decide the result. The averaged curve is fitted onto the 8
 bands and written to `eq.device_curve`. The largest gain is shifted to 0 dB
@@ -67,7 +64,7 @@ and download `<model> ParametricEQ.txt`. Download the same model from two or
 three sources if they exist, then:
 
 ```sh
-adaptive-eq device ~/Downloads/*ParametricEQ.txt
+leungo device ~/Downloads/*ParametricEQ.txt
 ```
 
 The repository does not ship any profile data. AutoEq is MIT licensed; the
@@ -99,18 +96,18 @@ Build and install:
 ```sh
 git clone https://github.com/rizqyep/leungo.git
 cd leungo
-cargo build --release -p ae-cli
-install -Dm755 target/release/adaptive-eq ~/.local/bin/adaptive-eq
+cargo build --release -p leungo-cli
+install -Dm755 target/release/leungo ~/.local/bin/leungo
 ```
 
 Make sure `~/.local/bin` is on your `PATH`, then:
 
 1. Start EasyEffects (service or background mode is fine) and play something.
-2. Run `adaptive-eq gui`. The dashboard opens at `http://127.0.0.1:8431`.
+2. Run `leungo gui`. The dashboard opens at `http://127.0.0.1:8431`.
 3. Optional: set your headphone profile, see "Device profile", and pick a
    tuning preset in the dashboard.
 
-The config is created on first run; `adaptive-eq config-path` prints where.
+The config is created on first run; `leungo config-path` prints where.
 There is no autostart unit yet, so start the daemon yourself or from your
 desktop's startup applications.
 
@@ -131,22 +128,22 @@ roadmap.
 
 ```sh
 # daemon + browser GUI (opens http://127.0.0.1:8431)
-adaptive-eq gui
+leungo gui
 
 # headless daemon
-adaptive-eq run
+leungo run
 
 # in another terminal
-adaptive-eq status          # state, archetype, confidence, current EQ
-adaptive-eq bypass on|off   # pause adaptation, restores the previous curve
+leungo status          # state, archetype, confidence, current EQ
+leungo bypass on|off   # pause adaptation, restores the previous curve
 
 # import your existing manual EQ as the base curve
-adaptive-eq calibrate <preset-name-or-path>
+leungo calibrate <preset-name-or-path>
 
 # analyze a 48 kHz WAV offline, no playback needed
-adaptive-eq analyze song.wav
+leungo analyze song.wav
 
-adaptive-eq config-path     # where the config lives
+leungo config-path     # where the config lives
 ```
 
 The GUI is a local web page served by the daemon itself (no external
@@ -155,13 +152,13 @@ spectrum, the applied EQ response, and has a bypass toggle. Close the tab any
 time; the daemon keeps adapting.
 
 Start EasyEffects first (service mode is fine). The daemon writes the preset
-`~/.local/share/easyeffects/output/adaptive-eq.json` and loads it whenever a
+`~/.local/share/easyeffects/output/leungo.json` and loads it whenever a
 new track is classified. The preset carries both the EasyEffects 7 (`equalizer`)
 and 8 (`equalizer#0`) setting keys, so one file works across versions.
 
 ## Config
 
-`~/.config/adaptive-eq/config.toml` is created with defaults on first run.
+`~/.config/leungo/config.toml` is created with defaults on first run.
 
 ```toml
 [analysis]
@@ -182,7 +179,7 @@ q = 1.41
 clamp_db = 12.0
 strength = 0.5             # fraction of the deviation corrected, 0..1
 base_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # your manual IEM EQ
-device_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # fixed headphone/IEM correction, applied in full; written by `adaptive-eq device`
+device_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # fixed headphone/IEM correction, applied in full; written by `leungo device`
 deadzone_db = 2.0          # deviations from the track's own tilt smaller than this are left alone
 residual_cap_db = 6.0      # largest deviation the adaptive layer will chase
 percussive_relief = 0.5   # fraction the bass/treble correction is reduced for fully percussive material, 0 = off
@@ -218,7 +215,7 @@ Tuning tips:
 - Capture reads `easyeffects_sink.monitor` (the signal before the EQ) when
   EasyEffects is running, so the analysis never measures its own correction.
 - Confidence is a margin between the two closest archetypes and is usually low
-  with the built-in prototypes. Run `adaptive-eq fit` after about 30 tracks to
+  with the built-in prototypes. Run `leungo fit` after about 30 tracks to
   fit prototypes to your own listening. It prints the mean confidence before
   and after. The number shows how typical a track is of its group, not whether
   the group is right.
@@ -233,29 +230,29 @@ Presets bundle eight settings: `eq.strength`, `eq.deadzone_db`, `eq.residual_cap
 | balanced | 0.5 | 2.0 | 6.0 | 5 | 0.35 | 1.5 | 10 | 20 |
 | aggressive | 0.8 | 1.0 | 8.0 | 2 | 0.5 | 2.5 | 6 | 10 |
 
-Choose a preset in the dashboard dropdown or run `adaptive-eq tuning conservative|balanced|aggressive|custom`. With no argument, the command prints the current preset. A running daemon applies the change within about a second and re-solves immediately. `custom` uses the values written in the config file. A `tuning = "balanced"` line at the top of the config sets the default preset.
+Choose a preset in the dashboard dropdown or run `leungo tuning conservative|balanced|aggressive|custom`. With no argument, the command prints the current preset. A running daemon applies the change within about a second and re-solves immediately. `custom` uses the values written in the config file. A `tuning = "balanced"` line at the top of the config sets the default preset.
 
 The values are starting points that have not been tuned by listening.
 
 ## Fitting to your listening
 
-- The daemon logs descriptors of each analyzed track to `~/.local/share/adaptive-eq/tracks.jsonl`.
-- `adaptive-eq fit` needs at least 30 tracks in two or more groups.
-- It writes `~/.config/adaptive-eq/classifier.json`.
+- The daemon logs descriptors of each analyzed track to `~/.local/share/leungo/tracks.jsonl`.
+- `leungo fit` needs at least 30 tracks in two or more groups.
+- It writes `~/.config/leungo/classifier.json`.
 - Restart the daemon to use it.
 
 ## Architecture
 
 ```
 crates/
-  ae-dsp               RBJ biquads, magnitude response, DF-I state
-  ae-eq                archetypes, target curves, least-squares EQ solver
-  ae-analysis          FFT spectrum, features, track detector, classifier
-  ae-core              config, engine state machine, traits, offline analysis
-  ae-capture-pipewire  monitor capture via the PulseAudio API
-  ae-mpris             track changes and now-playing from MPRIS players
-  ae-applier-ee        EasyEffects preset writer/loader + bypass
-  ae-cli               the adaptive-eq binary
+  leungo-dsp               RBJ biquads, magnitude response, DF-I state
+  leungo-eq                archetypes, target curves, least-squares EQ solver
+  leungo-analysis          FFT spectrum, features, track detector, classifier
+  leungo-core              config, engine state machine, traits, offline analysis
+  leungo-capture-pipewire  monitor capture via the PulseAudio API
+  leungo-mpris             track changes and now-playing from MPRIS players
+  leungo-applier-ee        EasyEffects preset writer/loader + bypass
+  leungo-cli               the leungo binary
 ```
 
 The capture and applier traits (`SampleSource`, `EqApplier`) are the platform

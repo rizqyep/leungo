@@ -1,8 +1,0 @@
-[package]
-name = "ae-eq"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-ae-dsp = { workspace = true }
-serde = { workspace = true }

@@ -3,93 +3,6 @@
 version = 4
 
 [[package]]
-name = "ae-analysis"
-version = "0.1.0"
-dependencies = [
- "ae-eq",
- "num-complex",
- "realfft",
- "serde",
-]
-
-[[package]]
-name = "ae-applier-ee"
-version = "0.1.0"
-dependencies = [
- "ae-core",
- "ae-eq",
- "anyhow",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "ae-capture-pipewire"
-version = "0.1.0"
-dependencies = [
- "ae-core",
- "anyhow",
- "libpulse-binding",
- "tracing",
-]
-
-[[package]]
-name = "ae-cli"
-version = "0.1.0"
-dependencies = [
- "ae-analysis",
- "ae-applier-ee",
- "ae-capture-pipewire",
- "ae-core",
- "ae-dsp",
- "ae-eq",
- "ae-mpris",
- "anyhow",
- "clap",
- "ctrlc",
- "hound",
- "serde_json",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ae-core"
-version = "0.1.0"
-dependencies = [
- "ae-analysis",
- "ae-eq",
- "anyhow",
- "dirs",
- "serde",
- "serde_json",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "ae-dsp"
-version = "0.1.0"
-
-[[package]]
-name = "ae-eq"
-version = "0.1.0"
-dependencies = [
- "ae-dsp",
- "serde",
-]
-
-[[package]]
-name = "ae-mpris"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "tracing",
- "zbus",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -639,6 +552,93 @@ name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
+
+[[package]]
+name = "leungo-analysis"
+version = "0.1.0"
+dependencies = [
+ "leungo-eq",
+ "num-complex",
+ "realfft",
+ "serde",
+]
+
+[[package]]
+name = "leungo-applier-ee"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "leungo-core",
+ "leungo-eq",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "leungo-capture-pipewire"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "leungo-core",
+ "libpulse-binding",
+ "tracing",
+]
+
+[[package]]
+name = "leungo-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ctrlc",
+ "hound",
+ "leungo-analysis",
+ "leungo-applier-ee",
+ "leungo-capture-pipewire",
+ "leungo-core",
+ "leungo-dsp",
+ "leungo-eq",
+ "leungo-mpris",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "leungo-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "leungo-analysis",
+ "leungo-eq",
+ "serde",
+ "serde_json",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "leungo-dsp"
+version = "0.1.0"
+
+[[package]]
+name = "leungo-eq"
+version = "0.1.0"
+dependencies = [
+ "leungo-dsp",
+ "serde",
+]
+
+[[package]]
+name = "leungo-mpris"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+ "zbus",
+]
 
 [[package]]
 name = "libc"

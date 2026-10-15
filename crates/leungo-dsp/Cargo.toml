@@ -1,0 +1,6 @@
+[package]
+name = "leungo-dsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

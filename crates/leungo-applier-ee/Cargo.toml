@@ -1,0 +1,12 @@
+[package]
+name = "leungo-applier-ee"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-core = { workspace = true }
+leungo-eq = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }

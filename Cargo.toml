@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/ae-dsp",
-    "crates/ae-eq",
-    "crates/ae-analysis",
-    "crates/ae-capture-pipewire",
-    "crates/ae-applier-ee",
-    "crates/ae-mpris",
-    "crates/ae-core",
-    "crates/ae-cli",
+    "crates/leungo-dsp",
+    "crates/leungo-eq",
+    "crates/leungo-analysis",
+    "crates/leungo-capture-pipewire",
+    "crates/leungo-applier-ee",
+    "crates/leungo-mpris",
+    "crates/leungo-core",
+    "crates/leungo-cli",
 ]
 
 [workspace.package]
@@ -17,13 +17,13 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-ae-dsp = { path = "crates/ae-dsp" }
-ae-eq = { path = "crates/ae-eq" }
-ae-analysis = { path = "crates/ae-analysis" }
-ae-capture-pipewire = { path = "crates/ae-capture-pipewire" }
-ae-applier-ee = { path = "crates/ae-applier-ee" }
-ae-mpris = { path = "crates/ae-mpris" }
-ae-core = { path = "crates/ae-core" }
+leungo-dsp = { path = "crates/leungo-dsp" }
+leungo-eq = { path = "crates/leungo-eq" }
+leungo-analysis = { path = "crates/leungo-analysis" }
+leungo-capture-pipewire = { path = "crates/leungo-capture-pipewire" }
+leungo-applier-ee = { path = "crates/leungo-applier-ee" }
+leungo-mpris = { path = "crates/leungo-mpris" }
+leungo-core = { path = "crates/leungo-core" }
 libpulse-binding = "2"
 realfft = "3"
 serde = { version = "1", features = ["derive"] }

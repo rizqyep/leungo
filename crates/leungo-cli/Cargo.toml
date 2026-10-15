@@ -1,0 +1,24 @@
+[package]
+name = "leungo-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "leungo"
+path = "src/main.rs"
+
+[dependencies]
+leungo-core = { workspace = true }
+leungo-dsp = { workspace = true }
+leungo-eq = { workspace = true }
+leungo-analysis = { workspace = true }
+leungo-capture-pipewire = { workspace = true }
+leungo-applier-ee = { workspace = true }
+leungo-mpris = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+hound = { workspace = true }
+ctrlc = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

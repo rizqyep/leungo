@@ -1,0 +1,8 @@
+[package]
+name = "leungo-eq"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-dsp = { workspace = true }
+serde = { workspace = true }

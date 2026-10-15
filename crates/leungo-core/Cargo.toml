@@ -1,0 +1,14 @@
+[package]
+name = "leungo-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-analysis = { workspace = true }
+leungo-eq = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }

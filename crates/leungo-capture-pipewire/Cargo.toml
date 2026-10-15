@@ -1,0 +1,10 @@
+[package]
+name = "leungo-capture-pipewire"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-core = { workspace = true }
+libpulse-binding = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
