@@ -15,6 +15,16 @@ use std::time::Duration;
 
 const PAGE: &str = include_str!("gui.html");
 
+fn page_id() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        PAGE.hash(&mut h);
+        format!("{:x}", h.finish())
+    })
+}
+
 pub struct GuiShared {
     pub status: Arc<Mutex<Status>>,
     pub spectrum: Arc<Mutex<Vec<(f64, f64)>>>,
@@ -23,11 +33,13 @@ pub struct GuiShared {
     pub sound_file: PathBuf,
     pub now_playing: Option<leungo_players::NowPlayingHandle>,
     pub setup: Option<SetupShared>,
+    pub devices: (String, String),
 }
 
 pub struct SetupShared {
     pub install: Arc<Mutex<crate::setup::Install>>,
     pub driver: String,
+    pub blocker: crate::setup::Blocker,
 }
 
 fn bind(port: u16) -> Result<TcpListener> {
@@ -50,7 +62,13 @@ fn serve_once(listener: &TcpListener, shared: &GuiShared) {
     }
 }
 
-fn wait_for_driver(listener: &TcpListener, driver: &str, stop: &AtomicBool) -> Result<()> {
+fn wait_for_setup(
+    listener: &TcpListener,
+    devices: (&str, &str),
+    blocker: crate::setup::Blocker,
+    stop: &AtomicBool,
+) -> Result<()> {
+    let driver = devices.0;
     let shared = GuiShared {
         status: Arc::new(Mutex::new(Status::default())),
         spectrum: Arc::new(Mutex::new(Vec::new())),
@@ -61,14 +79,16 @@ fn wait_for_driver(listener: &TcpListener, driver: &str, stop: &AtomicBool) -> R
         setup: Some(SetupShared {
             install: Arc::new(Mutex::new(crate::setup::Install::default())),
             driver: driver.to_string(),
+            blocker,
         }),
+        devices: (devices.0.to_string(), devices.1.to_string()),
     };
     let mut last_check = std::time::Instant::now();
     while !stop.load(Ordering::Relaxed) {
         serve_once(listener, &shared);
         if last_check.elapsed() >= Duration::from_secs(2) {
             last_check = std::time::Instant::now();
-            if crate::setup::driver_present(driver) {
+            if crate::setup::blocker(devices.0, devices.1).is_none() {
                 break;
             }
         }
@@ -90,20 +110,25 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
             .context("install ctrl-c handler")?;
     }
 
-    let port_listener = if crate::setup::driver_present(&cfg.standalone.input_device) {
-        None
-    } else {
-        let listener = bind(port)?;
-        let url = format!("http://127.0.0.1:{port}");
-        println!(
-            "leungo GUI: {url}  (waiting for the {} driver)",
-            cfg.standalone.input_device
-        );
-        if open_browser {
-            open_window(&url, &gui_open);
+    let devices = (
+        cfg.standalone.input_device.clone(),
+        cfg.standalone.output_device.clone(),
+    );
+    let port_listener = match crate::setup::blocker(&devices.0, &devices.1) {
+        None => None,
+        Some(blocker) => {
+            let listener = bind(port)?;
+            let url = format!("http://127.0.0.1:{port}");
+            println!(
+                "leungo GUI: {url}  (waiting for audio setup: {})",
+                blocker.as_str()
+            );
+            if open_browser {
+                open_window(&url, &gui_open);
+            }
+            wait_for_setup(&listener, (&devices.0, &devices.1), blocker, &stop)?;
+            Some(listener)
         }
-        wait_for_driver(&listener, &cfg.standalone.input_device, &stop)?;
-        Some(listener)
     };
     let already_open = port_listener.is_some();
     if stop.load(Ordering::Relaxed) {
@@ -170,6 +195,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         sound_file: paths::signature_path(),
         now_playing,
         setup: None,
+        devices,
     };
 
     let listener = match port_listener {
@@ -183,8 +209,15 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         open_window(&url, &gui_open);
     }
 
+    let mut last_health = std::time::Instant::now();
     while !stop.load(Ordering::Relaxed) {
         serve_once(&listener, &shared);
+        if last_health.elapsed() >= Duration::from_secs(2) {
+            last_health = std::time::Instant::now();
+            if crate::setup::device_lost(&shared.devices.0, &shared.devices.1) {
+                restart_soon();
+            }
+        }
     }
     stop.store(true, Ordering::Relaxed);
     let _ = engine_handle.join();
@@ -312,6 +345,49 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
             let body = serde_json::to_vec(&state_json(shared)).unwrap_or_default();
             respond(&mut stream, 200, "application/json", &body);
         }
+        ("GET", "/api/devices") => {
+            let choices = crate::setup::choices(&shared.devices.0);
+            let body = json!({
+                "inputs": choices.inputs,
+                "outputs": choices.outputs,
+                "input": shared.devices.0,
+                "output": shared.devices.1,
+            });
+            respond(
+                &mut stream,
+                200,
+                "application/json",
+                body.to_string().as_bytes(),
+            );
+        }
+        ("POST", "/api/devices") => {
+            let choices = crate::setup::choices(&shared.devices.0);
+            let (mut input, mut output) = (None, None);
+            for pair in query.split('&') {
+                match pair.split_once('=') {
+                    Some(("input", v)) => input = Some(percent_decode(v)),
+                    Some(("output", v)) => output = Some(percent_decode(v)),
+                    _ => {}
+                }
+            }
+            let valid = match (&input, &output) {
+                (Some(i), Some(o)) => choices.inputs.contains(i) && choices.outputs.contains(o),
+                _ => false,
+            };
+            if !valid {
+                respond(&mut stream, 400, "text/plain", b"unknown device");
+            } else if leungo_core::paths::save_device_choice(
+                input.as_deref().unwrap_or_default(),
+                output.as_deref().unwrap_or_default(),
+            )
+            .is_err()
+            {
+                respond(&mut stream, 500, "text/plain", b"could not save");
+            } else {
+                respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+                restart_soon();
+            }
+        }
         ("POST", "/api/setup/install") => match &shared.setup {
             Some(setup) => {
                 start_install(setup);
@@ -372,6 +448,48 @@ fn sound_json(query: &str) -> Option<String> {
     Some(serde_json::Value::Object(out).to_string())
 }
 
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+                match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                    Some(b) => {
+                        out.push(b);
+                        i += 2;
+                    }
+                    None => out.push(b'%'),
+                }
+            }
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Replaces this process with a fresh copy of itself so the engine reopens
+/// the chosen devices; the browser window is left alone.
+fn restart_soon() {
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(300));
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let mut args: Vec<String> = std::env::args().skip(1).collect();
+        if !args.iter().any(|a| a == "--no-open") {
+            args.push("--no-open".into());
+        }
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(exe).args(args).exec();
+        tracing::warn!("restart failed: {err}");
+    });
+}
+
 fn start_install(setup: &SetupShared) {
     use crate::setup::{Phase, install_driver};
     {
@@ -402,6 +520,7 @@ fn setup_json(setup: &SetupShared) -> serde_json::Value {
     let cur = setup.install.lock().map(|c| c.clone()).unwrap_or_default();
     json!({
         "driver": setup.driver,
+        "blocker": setup.blocker.as_str(),
         "canInstall": crate::setup::is_blackhole(&setup.driver),
         "phase": cur.phase.as_str(),
         "detail": cur.detail,
@@ -438,12 +557,24 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "spectrum": spectrum,
         "bandFreqs": BAND_FREQS.to_vec(),
         "setup": shared.setup.as_ref().map(setup_json),
+        "page": page_id(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{pick_app_browser, sound_json};
+    use super::{percent_decode, pick_app_browser, sound_json};
+
+    #[test]
+    fn decodes_device_names_from_a_query() {
+        assert_eq!(percent_decode("AB17X%20USB+Audio"), "AB17X USB Audio");
+        assert_eq!(
+            percent_decode("MacBook%20Air%20Speakers"),
+            "MacBook Air Speakers"
+        );
+        assert_eq!(percent_decode("100%"), "100%");
+        assert_eq!(percent_decode("%zz"), "%zz");
+    }
 
     #[test]
     fn builds_json_from_a_query() {

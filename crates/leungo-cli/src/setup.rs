@@ -69,6 +69,88 @@ pub fn driver_present(_input_device: &str) -> bool {
     true
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Blocker {
+    Driver,
+    Output,
+}
+
+impl Blocker {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Blocker::Driver => "driver",
+            Blocker::Output => "output",
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Choices {
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn output_blocked(outputs: &[&str], default: Option<&str>, loopback: &str, wanted: &str) -> bool {
+    if wanted.is_empty() {
+        return default.is_some_and(|d| any_matches(std::iter::once(d), loopback));
+    }
+    !any_matches(outputs.iter().copied(), wanted)
+}
+
+#[cfg(target_os = "macos")]
+pub fn blocker(loopback: &str, wanted_output: &str) -> Option<Blocker> {
+    if !driver_present(loopback) {
+        return Some(Blocker::Driver);
+    }
+    let list = leungo_standalone::io::list_devices().ok()?;
+    let outputs: Vec<&str> = list
+        .iter()
+        .filter(|d| d.output)
+        .map(|d| d.name.as_str())
+        .collect();
+    let default = leungo_standalone::io::default_output_name();
+    output_blocked(&outputs, default.as_deref(), loopback, wanted_output).then_some(Blocker::Output)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn blocker(_loopback: &str, _wanted_output: &str) -> Option<Blocker> {
+    None
+}
+
+/// True when a device the running engine depends on has gone away. An empty
+/// output means the engine opened whatever the default was at start, so only
+/// the driver is checked.
+pub fn device_lost(loopback: &str, wanted_output: &str) -> bool {
+    if wanted_output.is_empty() {
+        return !driver_present(loopback);
+    }
+    blocker(loopback, wanted_output).is_some()
+}
+
+/// Devices the dashboard offers: loopback-like outputs are left out so the
+/// engine cannot be pointed back at its own input.
+#[cfg(target_os = "macos")]
+pub fn choices(loopback: &str) -> Choices {
+    let list = leungo_standalone::io::list_devices().unwrap_or_default();
+    let mut out = Choices::default();
+    for d in &list {
+        if d.input && !out.inputs.contains(&d.name) {
+            out.inputs.push(d.name.clone());
+        }
+        let is_loopback = any_matches(std::iter::once(d.name.as_str()), loopback);
+        if d.output && !is_loopback && !out.outputs.contains(&d.name) {
+            out.outputs.push(d.name.clone());
+        }
+    }
+    out
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn choices(_loopback: &str) -> Choices {
+    Choices::default()
+}
+
 fn sha256_of(path: &Path) -> Result<String> {
     let out = Command::new("shasum")
         .args(["-a", "256"])
@@ -126,7 +208,31 @@ pub fn install_driver(progress: &dyn Fn(Phase, &str)) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{any_matches, is_blackhole};
+    use super::{any_matches, is_blackhole, output_blocked};
+
+    #[test]
+    fn blocks_when_the_default_output_is_the_loopback_device() {
+        let outs = ["AB17X USB Audio", "BlackHole 2ch"];
+        assert!(output_blocked(
+            &outs,
+            Some("BlackHole 2ch"),
+            "BlackHole",
+            ""
+        ));
+        assert!(!output_blocked(
+            &outs,
+            Some("AB17X USB Audio"),
+            "BlackHole",
+            ""
+        ));
+    }
+
+    #[test]
+    fn blocks_when_the_chosen_output_is_missing() {
+        let outs = ["MacBook Air Speakers"];
+        assert!(output_blocked(&outs, None, "BlackHole", "AB17X"));
+        assert!(!output_blocked(&outs, None, "BlackHole", "speakers"));
+    }
 
     #[test]
     fn matches_device_names_case_insensitively() {

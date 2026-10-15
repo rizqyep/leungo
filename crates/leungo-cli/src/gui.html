@@ -122,6 +122,15 @@
   #setup button.primary { color: var(--ink); background: var(--saffron); border-color: var(--saffron); padding: 9px 16px; }
   #setup button.primary:disabled { opacity: .6; cursor: default; }
   #setupDetail.failed { color: var(--err); }
+  .devices .row { display: grid; grid-template-columns: 90px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .devices select, #setup select { font: inherit; color: var(--paper); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; width: 100%; min-width: 0; }
+  .devices select, #setup select { color-scheme: dark; }
+  .devices option, #setup option { color: var(--paper); background: var(--panel-2); }
+  .devices option:disabled, #setup option:disabled { color: var(--faint); }
+  .devices select:focus-visible, #setup select:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
+  .devices[hidden], #setupOutput[hidden], #setupDriverBlock[hidden] { display: none; }
+  .devices .hint.warn { color: var(--err); }
   footer { color: var(--faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
 </style>
 </head>
@@ -151,7 +160,17 @@
     </div>
   </section>
 
-  <section class="card" id="setup" aria-label="Audio driver setup" hidden>
+  <section class="card" id="setup" aria-label="Audio setup" hidden>
+    <div id="setupOutput" hidden>
+      <h2>Choose where you want to hear your music</h2>
+      <p>Leungo processes the sound and plays it to this device. Pick your headphones or speakers.</p>
+      <div class="actions">
+        <select id="setupOutputSelect" aria-label="Output device"></select>
+        <button class="primary" id="setupOutputSave">Save and continue</button>
+      </div>
+      <p class="hint" id="setupOutputHint"></p>
+    </div>
+    <div id="setupDriverBlock">
     <h2>Leungo needs the <span id="setupDriver">BlackHole</span> audio driver</h2>
     <p id="setupLead">Leungo listens to your music through a virtual loopback device. It is not installed on this Mac yet.</p>
     <ol>
@@ -163,6 +182,14 @@
       <button class="primary" id="setupInstall">Install BlackHole 2ch</button>
       <span id="setupDetail" role="status"></span>
     </div>
+    </div>
+  </section>
+
+  <section class="card devices" id="devices" aria-label="Audio devices" hidden>
+    <h2>Audio devices</h2>
+    <div class="row"><label for="dev_in">Capture</label><select id="dev_in"></select></div>
+    <div class="row"><label for="dev_out">Play to</label><select id="dev_out"></select></div>
+    <p class="hint" id="devHint">Changing a device restarts the audio engine for a moment.</p>
   </section>
 
   <div class="layout">
@@ -289,6 +316,10 @@ function renderSetup(setup) {
   $('setup').hidden = !setup;
   if (!setup) return;
   $('setupDriver').textContent = setup.driver;
+  const outputStep = setup.blocker === 'output';
+  $('setupOutput').hidden = !outputStep;
+  $('setupDriverBlock').hidden = outputStep;
+  if (outputStep) return;
   const busy = setup.phase === 'downloading';
   $('setupInstall').hidden = !setup.canInstall;
   $('setupInstall').disabled = busy || setup.phase === 'opened';
@@ -299,11 +330,65 @@ function renderSetup(setup) {
   detail.className = setup.phase === 'failed' ? 'failed' : '';
 }
 
+// ---- audio devices
+const dev = { open: false, inputs: [], outputs: [], input: '', output: '', busy: false };
+function fillSelect(el, names, current, placeholder) {
+  const key = names.join('\n') + '|' + current;
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  const picked = el.value;
+  el.textContent = '';
+  const cur = names.includes(picked)
+    ? picked
+    : names.find((n) => current && n.toLowerCase().includes(current.toLowerCase()));
+  if (!cur) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = placeholder; o.selected = true; o.disabled = true;
+    el.appendChild(o);
+  }
+  names.forEach((n) => {
+    const o = document.createElement('option');
+    o.value = n; o.textContent = n; o.selected = n === cur;
+    el.appendChild(o);
+  });
+}
+async function refreshDevices() {
+  try {
+    const r = await fetch('/api/devices', { cache: 'no-store' });
+    Object.assign(dev, await r.json());
+  } catch (e) { return; }
+  fillSelect($('dev_in'), dev.inputs, dev.input, 'Choose an input');
+  fillSelect($('dev_out'), dev.outputs, dev.output, 'Choose an output');
+  fillSelect($('setupOutputSelect'), dev.outputs, dev.output, 'Choose an output');
+  const missing = dev.output && !dev.outputs.some((n) => n.toLowerCase().includes(dev.output.toLowerCase()));
+  $('devHint').textContent = missing
+    ? dev.output + ' is not connected. Plug it in or pick another device.'
+    : 'Changing a device restarts the audio engine for a moment.';
+  $('devHint').className = missing ? 'hint warn' : 'hint';
+}
+async function saveDevices(input, output) {
+  if (!input || !output || dev.busy) return;
+  dev.busy = true;
+  const q = 'input=' + encodeURIComponent(input) + '&output=' + encodeURIComponent(output);
+  try { await fetch('/api/devices?' + q, { method: 'POST' }); } catch (e) {}
+  $('devHint').textContent = 'Restarting the audio engine';
+  setTimeout(() => { dev.busy = false; }, 2500);
+}
+$('dev_in').addEventListener('change', (e) => saveDevices(e.target.value, $('dev_out').value || dev.output));
+$('dev_out').addEventListener('change', (e) => saveDevices($('dev_in').value || dev.input, e.target.value));
+$('setupOutputSave').addEventListener('click', () => {
+  const v = $('setupOutputSelect').value;
+  if (v) saveDevices(dev.input, v);
+});
+setInterval(refreshDevices, 3000);
+refreshDevices();
+
 // ---- render state
 function render() {
   const d = state.data; if (!d) return;
   renderSetup(d.setup);
-  if (d.setup) { $('stateText').textContent = 'Setup needed'; $('statePill').className = 'pill bypassed'; return; }
+  $('devices').hidden = !!d.setup || !dev.outputs.length;
+  if (d.setup) { $('stateText').textContent = d.setup.blocker === 'output' ? 'Choose an output' : 'Setup needed'; $('statePill').className = 'pill bypassed'; return; }
   const bypassed = !!d.bypassed;
   const pill = $('statePill');
   pill.className = 'pill ' + (bypassed ? 'bypassed' : d.state);
@@ -428,6 +513,8 @@ async function poll() {
   try {
     const r = await fetch('/api/state', { cache: 'no-store' });
     state.data = await r.json();
+    if (state.page && state.data.page && state.page !== state.data.page) { location.reload(); return; }
+    state.page = state.data.page;
     render();
   } catch (e) {
     $('stateText').textContent = 'Daemon not reachable';

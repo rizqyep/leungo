@@ -79,6 +79,39 @@ pub fn load_fitted_classifier() -> Option<leungo_analysis::FittedClassifier> {
     serde_json::from_str(&raw).ok()
 }
 
+/// Input and output device names chosen in the dashboard, as JSON. They
+/// override `[standalone]` without rewriting the hand-edited config file.
+pub fn devices_path() -> PathBuf {
+    config_path().with_file_name("devices.json")
+}
+
+pub fn apply_device_choice(cfg: &mut Config) {
+    if let Ok(raw) = std::fs::read_to_string(devices_path()) {
+        apply_choice_json(cfg, &raw);
+    }
+}
+
+fn apply_choice_json(cfg: &mut Config, raw: &str) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return;
+    };
+    if let Some(s) = v["input"].as_str() {
+        cfg.standalone.input_device = s.to_string();
+    }
+    if let Some(s) = v["output"].as_str() {
+        cfg.standalone.output_device = s.to_string();
+    }
+}
+
+pub fn save_device_choice(input: &str, output: &str) -> Result<()> {
+    let path = devices_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let body = serde_json::json!({ "input": input, "output": output }).to_string();
+    std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))
+}
+
 pub fn load_or_create_config() -> Result<Config> {
     let path = config_path();
     if !path.exists() {
@@ -103,6 +136,19 @@ pub fn save_config(cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_choice_json_overrides_the_standalone_devices() {
+        let mut cfg = Config::default();
+        apply_choice_json(
+            &mut cfg,
+            r#"{"input":"BlackHole 2ch","output":"AB17X USB Audio"}"#,
+        );
+        assert_eq!(cfg.standalone.input_device, "BlackHole 2ch");
+        assert_eq!(cfg.standalone.output_device, "AB17X USB Audio");
+        apply_choice_json(&mut cfg, "not json");
+        assert_eq!(cfg.standalone.output_device, "AB17X USB Audio");
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("leungo-paths-{name}-{}", std::process::id()));

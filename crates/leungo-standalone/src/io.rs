@@ -101,6 +101,12 @@ fn contains_ci(hay: &str, needle: &str) -> bool {
     hay.to_lowercase().contains(&needle.to_lowercase())
 }
 
+pub fn default_output_name() -> Option<String> {
+    cpal::default_host()
+        .default_output_device()
+        .map(|d| name_of(&d))
+}
+
 pub fn list_devices() -> Result<Vec<DeviceEntry>> {
     let host = cpal::default_host();
     let mut out = Vec::new();

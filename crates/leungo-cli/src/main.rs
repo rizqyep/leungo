@@ -117,7 +117,8 @@ fn dispatch(cli: Cli) -> Result<()> {
 }
 
 fn run() -> Result<()> {
-    let cfg = paths::load_or_create_config()?;
+    let mut cfg = paths::load_or_create_config()?;
+    paths::apply_device_choice(&mut cfg);
     cfg.validate()?;
     let status = Arc::new(Mutex::new(Status::default()));
     let stop = Arc::new(AtomicBool::new(false));
@@ -149,7 +150,6 @@ fn run() -> Result<()> {
             })?;
     }
 
-    let mut cfg = cfg;
     let platform = platform::setup(&mut cfg, stop.clone())?;
     let mut engine = Engine::new(cfg, platform.source, platform.applier, status, stop.clone());
     engine.set_tuning_path(paths::tuning_path());
@@ -182,7 +182,8 @@ fn setup_cmd() -> Result<()> {
         println!("nothing to set up: on Linux leungo captures the PipeWire monitor directly.");
         return Ok(());
     }
-    let cfg = paths::load_or_create_config()?;
+    let mut cfg = paths::load_or_create_config()?;
+    paths::apply_device_choice(&mut cfg);
     let driver = cfg.standalone.input_device.clone();
     if setup::driver_present(&driver) {
         println!("{driver}: found.");
@@ -201,7 +202,8 @@ fn setup_cmd() -> Result<()> {
 }
 
 fn gui(port_arg: Option<u16>, no_open: bool) -> Result<()> {
-    let cfg = paths::load_or_create_config()?;
+    let mut cfg = paths::load_or_create_config()?;
+    paths::apply_device_choice(&mut cfg);
     cfg.validate()?;
     let port = port_arg.unwrap_or(cfg.gui.port);
     gui::run_gui(cfg, port, !no_open)
