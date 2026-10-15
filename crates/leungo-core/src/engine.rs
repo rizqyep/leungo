@@ -30,6 +30,15 @@ pub struct Status {
     /// How repeatable the current spectral measurement is, 0..=1.
     #[serde(default)]
     pub reliability: f64,
+    /// Sound signature and device-correction strength currently applied.
+    #[serde(default)]
+    pub signature: leungo_eq::Signature,
+    #[serde(default = "default_device_strength")]
+    pub device_strength: f64,
+}
+
+fn default_device_strength() -> f64 {
+    0.6
 }
 
 fn custom_tuning() -> String {
@@ -48,6 +57,8 @@ impl Default for Status {
             message: None,
             tuning: custom_tuning(),
             reliability: 0.0,
+            signature: leungo_eq::Signature::default(),
+            device_strength: default_device_strength(),
         }
     }
 }
@@ -73,6 +84,8 @@ pub struct Engine {
     base_cfg: Config,
     tuning: Option<crate::config::Preset>,
     tuning_checked_s: f64,
+    signature_path: Option<PathBuf>,
+    signature_checked_s: f64,
     state: State,
     bypassed: bool,
     collected_s: f64,
@@ -123,6 +136,27 @@ fn read_tuning(path: &std::path::Path) -> Option<Option<crate::config::Preset>> 
     crate::config::Preset::parse(name).map(Some)
 }
 
+/// Parses the sound file: `{"bass":..,"warmth":..,"presence":..,"air":..,
+/// "device":..}`. Missing keys are 0 (device: 0.6); values are clamped.
+fn read_signature(path: &std::path::Path) -> Option<(leungo_eq::Signature, f64)> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let f = |k: &str, d: f64| v.get(k).and_then(|x| x.as_f64()).unwrap_or(d);
+    let sig = leungo_eq::Signature {
+        bass_db: f("bass", 0.0),
+        warmth_db: f("warmth", 0.0),
+        presence_db: f("presence", 0.0),
+        air_db: f("air", 0.0),
+    }
+    .clamped();
+    let device = f("device", 0.6);
+    let device = if device.is_finite() {
+        device.clamp(0.0, 1.0)
+    } else {
+        0.6
+    };
+    Some((sig, device))
+}
+
 impl Engine {
     pub fn new(
         cfg: Config,
@@ -138,7 +172,12 @@ impl Engine {
         if let Some(p) = tuning {
             p.apply(&mut cfg);
         }
-        status.lock().unwrap().tuning = tuning.map_or("custom", |p| p.as_str()).into();
+        {
+            let mut st = status.lock().unwrap();
+            st.tuning = tuning.map_or("custom", |p| p.as_str()).into();
+            st.signature = cfg.eq.signature.clamped();
+            st.device_strength = cfg.eq.device_strength.clamp(0.0, 1.0);
+        }
         let fs = cfg.capture.rate as f64;
         let solver = EqSolver::new(
             cfg.eq.frequencies.clone(),
@@ -175,6 +214,8 @@ impl Engine {
             base_cfg,
             tuning,
             tuning_checked_s: 0.0,
+            signature_path: None,
+            signature_checked_s: 0.0,
             state: State::Idle,
             bypassed: false,
             collected_s: 0.0,
@@ -303,6 +344,48 @@ impl Engine {
         self.next_refine_s = self.now_s;
     }
 
+    /// Enables live sound-signature changes: the engine watches this JSON
+    /// file (written by the GUI or `leungo sound`) and applies it now.
+    pub fn set_signature_path(&mut self, p: PathBuf) {
+        self.signature_path = Some(p);
+        self.signature_checked_s = f64::NEG_INFINITY;
+        self.poll_signature();
+    }
+
+    fn poll_signature(&mut self) {
+        if self.now_s - self.signature_checked_s < 0.5 {
+            return;
+        }
+        self.signature_checked_s = self.now_s;
+        let Some(path) = self.signature_path.as_ref() else {
+            return;
+        };
+        let Some((sig, device)) = read_signature(path) else {
+            return;
+        };
+        if sig == self.cfg.eq.signature && (device - self.cfg.eq.device_strength).abs() < 1e-9 {
+            return;
+        }
+        // base_cfg too, so a later tuning change does not undo it
+        for c in [&mut self.cfg, &mut self.base_cfg] {
+            c.eq.signature = sig;
+            c.eq.device_strength = device;
+        }
+        {
+            let mut st = self.status.lock().unwrap();
+            st.signature = sig;
+            st.device_strength = device;
+        }
+        tracing::info!("sound: {sig:?} device {device:.2}");
+        // Heard at once, not after the next refinement pass.
+        if self.state == State::Active && self.last_applied.is_some() {
+            let (gains, archetype, confidence) =
+                self.solve_current(self.crest_db, self.track_class);
+            self.pending = None;
+            self.commit(gains, archetype, confidence);
+        }
+    }
+
     fn poll_bypass(&mut self) -> anyhow::Result<()> {
         let want = self.bypass_path.exists();
         if want == self.bypassed {
@@ -341,6 +424,7 @@ impl Engine {
                 *snapshot = self.analyzer.snapshot_log_spectrum(128, 40.0, 16_000.0);
             }
             self.poll_tuning();
+            self.poll_signature();
             self.maybe_commit_pending(&fr)?;
             match self.state {
                 State::Idle => {

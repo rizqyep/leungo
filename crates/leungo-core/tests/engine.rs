@@ -575,3 +575,59 @@ fn playback_level_does_not_change_the_curve() {
         );
     }
 }
+
+#[test]
+fn sound_file_changes_the_curve_and_the_status() {
+    let dir = std::env::temp_dir().join(format!("leungo-sound-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("signature.json");
+
+    let run = |sound: Option<&str>| {
+        if let Some(j) = sound {
+            std::fs::write(&path, j).unwrap();
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+        let applied = Arc::new(Mutex::new(Vec::new()));
+        let status = Arc::new(Mutex::new(Status::default()));
+        let mut engine = Engine::new(
+            Config::default(),
+            Box::new(ScriptSource {
+                events: tone_chunks(VOCAL_TRACK, 8.0).into_iter(),
+            }),
+            Box::new(RecordingApplier {
+                applied: applied.clone(),
+                bypasses: Arc::new(Mutex::new(0)),
+            }),
+            status.clone(),
+            Arc::new(AtomicBool::new(false)),
+        );
+        engine.set_signature_path(path.clone());
+        engine.run().unwrap();
+        let last = applied.lock().unwrap().last().cloned().unwrap();
+        let st = status.lock().unwrap().clone();
+        (last, st)
+    };
+
+    let (flat, flat_status) = run(None);
+    let (warm, warm_status) = run(Some(r#"{"bass": 6, "air": 4, "device": 0.6}"#));
+    assert_eq!(flat_status.signature.bass_db, 0.0);
+    assert_eq!(warm_status.signature.bass_db, 6.0);
+    assert_eq!(warm_status.signature.air_db, 4.0);
+    // bass and air bands sit higher relative to the mids than without it
+    let rel = |g: &Vec<f64>, i: usize| g[i] - g[4];
+    assert!(
+        rel(&warm, 0) > rel(&flat, 0) + 2.0,
+        "bass: {warm:?} vs {flat:?}"
+    );
+    assert!(
+        rel(&warm, 7) > rel(&flat, 7) + 0.5,
+        "air: {warm:?} vs {flat:?}"
+    );
+    // never a net boost from the signature itself
+    assert!(
+        warm.iter().cloned().fold(f64::MIN, f64::max)
+            <= flat.iter().cloned().fold(f64::MIN, f64::max) + 0.5
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

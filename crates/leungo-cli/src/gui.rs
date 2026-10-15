@@ -22,6 +22,7 @@ pub struct GuiShared {
     pub spectrum: Arc<Mutex<Vec<(f64, f64)>>>,
     pub bypass_flag: PathBuf,
     pub tuning_flag: PathBuf,
+    pub sound_file: PathBuf,
     pub now_playing: Option<leungo_mpris::NowPlayingHandle>,
 }
 
@@ -53,6 +54,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         engine.set_classifier(c);
     }
     engine.set_tuning_path(paths::tuning_path());
+    engine.set_signature_path(paths::signature_path());
     let mut now_playing = None;
     if use_mpris {
         match leungo_mpris::spawn_with_now_playing() {
@@ -101,6 +103,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         spectrum,
         bypass_flag,
         tuning_flag: paths::tuning_path(),
+        sound_file: paths::signature_path(),
         now_playing,
     };
 
@@ -172,7 +175,8 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
     let head = String::from_utf8_lossy(&buf[..n]);
     let mut parts = head.split_whitespace();
     let method = parts.next().unwrap_or("").to_ascii_uppercase();
-    let path = parts.next().unwrap_or("/").split('?').next().unwrap_or("/");
+    let target = parts.next().unwrap_or("/");
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
 
     match (method.as_str(), path) {
         ("GET", "/") => {
@@ -195,6 +199,19 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
             let _ = std::fs::remove_file(&shared.bypass_flag);
             respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
         }
+        ("POST", "/api/sound") => match sound_json(query) {
+            Some(body) => {
+                let tmp = shared.sound_file.with_extension("tmp");
+                let ok = std::fs::write(&tmp, body).is_ok()
+                    && std::fs::rename(&tmp, &shared.sound_file).is_ok();
+                if ok {
+                    respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+                } else {
+                    respond(&mut stream, 500, "text/plain", b"could not write");
+                }
+            }
+            None => respond(&mut stream, 400, "text/plain", b"bad values"),
+        },
         ("POST", p) if p.starts_with("/api/tuning/") => {
             let name = &p["/api/tuning/".len()..];
             if name == "custom" || leungo_core::Preset::parse(name).is_some() {
@@ -206,6 +223,25 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
         }
         _ => respond(&mut stream, 404, "text/plain", b"not found"),
     }
+}
+
+/// Builds the sound file from `bass=..&warmth=..&presence=..&air=..&device=..`.
+/// Unknown keys are ignored; a value that is not a finite number rejects the
+/// whole request. The engine clamps ranges.
+fn sound_json(query: &str) -> Option<String> {
+    let mut out = serde_json::Map::new();
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=')?;
+        if !["bass", "warmth", "presence", "air", "device"].contains(&k) {
+            continue;
+        }
+        let n: f64 = v.parse().ok()?;
+        if !n.is_finite() {
+            return None;
+        }
+        out.insert(k.to_string(), serde_json::json!(n));
+    }
+    Some(serde_json::Value::Object(out).to_string())
 }
 
 fn state_json(shared: &GuiShared) -> serde_json::Value {
@@ -221,6 +257,13 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "nowPlaying": now_playing,
         "tuning": status.tuning,
         "reliability": status.reliability,
+        "sound": {
+            "bass": status.signature.bass_db,
+            "warmth": status.signature.warmth_db,
+            "presence": status.signature.presence_db,
+            "air": status.signature.air_db,
+            "device": status.device_strength,
+        },
         "state": status.state,
         "bypassed": status.bypassed,
         "archetype": status.archetype,
@@ -231,4 +274,27 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "spectrum": spectrum,
         "bandFreqs": BAND_FREQS.to_vec(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sound_json;
+
+    #[test]
+    fn builds_json_from_a_query() {
+        let j = sound_json("bass=3.5&air=-1&device=0.6&junk=9").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&j).unwrap();
+        assert_eq!(v["bass"], 3.5);
+        assert_eq!(v["air"], -1.0);
+        assert_eq!(v["device"], 0.6);
+        assert!(v.get("junk").is_none());
+    }
+
+    #[test]
+    fn rejects_non_numbers() {
+        assert!(sound_json("bass=loud").is_none());
+        assert!(sound_json("bass=NaN").is_none());
+        assert!(sound_json("bass").is_none());
+        assert_eq!(sound_json("").unwrap(), "{}");
+    }
 }

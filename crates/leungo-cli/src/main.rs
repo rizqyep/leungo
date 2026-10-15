@@ -41,6 +41,20 @@ enum Cmd {
     MonitorMpris,
     /// Show or set the tuning preset (conservative | balanced | aggressive | custom).
     Tuning { name: Option<String> },
+    /// Show or set the sound signature: bass, warmth, presence, air (dB) and
+    /// device (0 to 1, how much of the headphone correction is applied).
+    Sound {
+        #[arg(long, allow_negative_numbers = true)]
+        bass: Option<f64>,
+        #[arg(long, allow_negative_numbers = true)]
+        warmth: Option<f64>,
+        #[arg(long, allow_negative_numbers = true)]
+        presence: Option<f64>,
+        #[arg(long, allow_negative_numbers = true)]
+        air: Option<f64>,
+        #[arg(long)]
+        device: Option<f64>,
+    },
     /// Bypass the adaptive EQ (on | off).
     Bypass { state: String },
     /// Import base_curve gains from an existing EasyEffects output preset.
@@ -77,6 +91,13 @@ fn dispatch(cli: Cli) -> Result<()> {
         Cmd::Status => status(),
         Cmd::MonitorMpris => monitor_mpris(),
         Cmd::Tuning { name } => tuning(name.as_deref()),
+        Cmd::Sound {
+            bass,
+            warmth,
+            presence,
+            air,
+            device,
+        } => sound([bass, warmth, presence, air, device]),
         Cmd::Bypass { state } => bypass(&state),
         Cmd::Calibrate { preset } => calibrate(&preset),
         Cmd::Device { files } => device(&files),
@@ -133,6 +154,7 @@ fn run() -> Result<()> {
         stop.clone(),
     );
     engine.set_tuning_path(paths::tuning_path());
+    engine.set_signature_path(paths::signature_path());
     if use_mpris {
         match leungo_mpris::spawn() {
             Ok(rx) => engine.set_track_events(rx),
@@ -220,6 +242,49 @@ fn tuning(name: Option<&str>) -> Result<()> {
     }
     std::fs::write(&path, name)?;
     println!("tuning set to {name} (a running daemon picks it up within a second)");
+    Ok(())
+}
+
+fn sound(values: [Option<f64>; 5]) -> Result<()> {
+    let keys = ["bass", "warmth", "presence", "air", "device"];
+    let path = paths::signature_path();
+    let cfg = paths::load_or_create_config()?;
+    // Start from what is already set: the runtime file, else the config.
+    let mut cur: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| {
+            let s = cfg.eq.signature;
+            let mut m = serde_json::Map::new();
+            m.insert("bass".into(), s.bass_db.into());
+            m.insert("warmth".into(), s.warmth_db.into());
+            m.insert("presence".into(), s.presence_db.into());
+            m.insert("air".into(), s.air_db.into());
+            m.insert("device".into(), cfg.eq.device_strength.into());
+            m
+        });
+    let mut changed = false;
+    for (k, v) in keys.iter().zip(values) {
+        if let Some(v) = v {
+            ensure!(v.is_finite(), "{k} must be a number");
+            cur.insert((*k).into(), v.into());
+            changed = true;
+        }
+    }
+    if changed {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, serde_json::Value::Object(cur.clone()).to_string())?;
+        println!("sound updated (a running daemon applies it within a second)");
+    }
+    for k in keys {
+        let v = cur.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+        match k {
+            "device" => println!("  {k:<9} {:.0}%", v * 100.0),
+            _ => println!("  {k:<9} {v:+.1} dB"),
+        }
+    }
     Ok(())
 }
 
