@@ -1,0 +1,14 @@
+[package]
+name = "ae-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ae-analysis = { workspace = true }
+ae-eq = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }

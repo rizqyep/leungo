@@ -1,0 +1,10 @@
+[package]
+name = "ae-analysis"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ae-eq = { workspace = true }
+realfft = { workspace = true }
+serde = { workspace = true }
+num-complex = "0.4"

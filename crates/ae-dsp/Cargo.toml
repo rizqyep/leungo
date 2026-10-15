@@ -1,0 +1,6 @@
+[package]
+name = "ae-dsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

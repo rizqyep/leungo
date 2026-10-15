@@ -1,0 +1,6 @@
+/target
+Cargo.lock.orig
+*.swp
+/profiles/
+*.bak*
+.DS_Store

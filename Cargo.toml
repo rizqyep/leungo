@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ae-dsp",
+    "crates/ae-eq",
+    "crates/ae-analysis",
+    "crates/ae-capture-pipewire",
+    "crates/ae-applier-ee",
+    "crates/ae-mpris",
+    "crates/ae-core",
+    "crates/ae-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+ae-dsp = { path = "crates/ae-dsp" }
+ae-eq = { path = "crates/ae-eq" }
+ae-analysis = { path = "crates/ae-analysis" }
+ae-capture-pipewire = { path = "crates/ae-capture-pipewire" }
+ae-applier-ee = { path = "crates/ae-applier-ee" }
+ae-mpris = { path = "crates/ae-mpris" }
+ae-core = { path = "crates/ae-core" }
+libpulse-binding = "2"
+realfft = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "6"
+hound = "3"
+ctrlc = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
