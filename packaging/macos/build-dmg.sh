@@ -13,12 +13,12 @@ STAGE="$(mktemp -d)"
 APP="$STAGE/Leungo.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$OUT"
 
-cp "$BIN" "$APP/Contents/MacOS/leungo"
+cp "$BIN" "$APP/Contents/MacOS/leungo-bin"
 
 # The bundle's entry point starts the daemon with the dashboard.
 cat > "$APP/Contents/MacOS/Leungo" <<'LAUNCH'
 #!/bin/bash
-exec "$(dirname "$0")/leungo" gui
+exec "$(dirname "$0")/leungo-bin" gui
 LAUNCH
 chmod +x "$APP/Contents/MacOS/Leungo"
 
@@ -47,8 +47,11 @@ if [ -f "$ROOT/assets/brand/leungo.icns" ]; then
   cp "$ROOT/assets/brand/leungo.icns" "$APP/Contents/Resources/"
 fi
 
+[ "$(wc -c < "$APP/Contents/MacOS/leungo-bin")" -eq "$(wc -c < "$BIN")" ] || { echo "bundled binary was overwritten" >&2; exit 1; }
+
 # Ad-hoc signature (no Developer ID): Apple silicon refuses to run unsigned code.
 codesign --force --deep --sign - "$APP"
+codesign --verify --deep --strict "$APP"
 
 cp "$ROOT/LICENSE" "$STAGE/LICENSE.txt"
 cat > "$STAGE/READ ME FIRST.txt" <<'TXT'
