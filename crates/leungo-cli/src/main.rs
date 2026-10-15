@@ -6,6 +6,7 @@ use leungo_core::{Engine, Status, paths};
 use leungo_eq::BAND_FREQS;
 mod gui;
 mod platform;
+mod setup;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -67,6 +68,8 @@ enum Cmd {
     Fit,
     /// List audio devices (macOS standalone engine).
     Devices,
+    /// Check the audio prerequisites and install the BlackHole driver (macOS).
+    Setup,
     /// Print the config file path.
     ConfigPath,
 }
@@ -92,6 +95,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Cmd::Status => status(),
         Cmd::MonitorMpris => monitor_mpris(),
         Cmd::Devices => platform::print_devices(),
+        Cmd::Setup => setup_cmd(),
         Cmd::Tuning { name } => tuning(name.as_deref()),
         Cmd::Sound {
             bass,
@@ -170,6 +174,29 @@ fn monitor_mpris() -> Result<()> {
     for id in rx {
         println!("track changed: {id}");
     }
+    Ok(())
+}
+
+fn setup_cmd() -> Result<()> {
+    if !cfg!(target_os = "macos") {
+        println!("nothing to set up: on Linux leungo captures the PipeWire monitor directly.");
+        return Ok(());
+    }
+    let cfg = paths::load_or_create_config()?;
+    let driver = cfg.standalone.input_device.clone();
+    if setup::driver_present(&driver) {
+        println!("{driver}: found.");
+    } else if setup::is_blackhole(&driver) {
+        setup::install_driver(&|_, detail| println!("{detail}"))?;
+        println!("After the driver is active, run `leungo setup` again to confirm.");
+    } else {
+        bail!("no input device matching {driver:?}; set standalone.input_device or install it");
+    }
+    println!("Next: choose BlackHole 2ch as the system output in System Settings > Sound,");
+    println!(
+        "then set standalone.output_device in {} to your speakers.",
+        paths::config_path().display()
+    );
     Ok(())
 }
 

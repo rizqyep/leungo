@@ -61,10 +61,12 @@ Leungo is not signed with an Apple Developer ID, so macOS blocks the first launc
 2. Right-click Leungo.app, choose Open, then Open again in the dialog.
    (If it says the app is damaged, run in Terminal:
     xattr -dr com.apple.quarantine /Applications/Leungo.app )
-3. Install BlackHole 2ch (brew install --cask blackhole-2ch) and set it as the
-   system output. Put your real speakers or headphones in
-   ~/Library/Application Support/leungo/config.toml under [standalone] output_device.
-4. Allow the Microphone and Automation prompts.
+3. Open Leungo. If BlackHole 2ch is missing, click "Install BlackHole 2ch" on the
+   setup screen, enter your password, and restart if the installer asks.
+4. Set BlackHole 2ch as the system output, and put your real speakers or
+   headphones in ~/Library/Application Support/leungo/config.toml under
+   [standalone] output_device.
+5. Allow the Microphone and Automation prompts.
 
 Full guide: https://github.com/rizqyep/leungo#macos
 TXT

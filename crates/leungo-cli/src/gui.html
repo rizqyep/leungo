@@ -114,6 +114,14 @@
   .hint { color: var(--faint); font-size: 12.5px; margin: 10px 0 0; }
   .divider { height: 1px; background: var(--line); margin: 14px 0 6px; }
   #msg { min-height: 20px; color: var(--err); font-size: 13px; }
+  .setup-mode .now, .setup-mode .layout, .setup-mode .switch { display: none; }
+  #setup[hidden] { display: none; }
+  #setup h2 { font-size: 18px; letter-spacing: 0; text-transform: none; color: var(--paper); margin: 0 0 8px; }
+  #setup ol { margin: 12px 0 16px; padding-left: 20px; color: var(--dim); }
+  #setup .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #setup button.primary { color: var(--ink); background: var(--saffron); border-color: var(--saffron); padding: 9px 16px; }
+  #setup button.primary:disabled { opacity: .6; cursor: default; }
+  #setupDetail.failed { color: var(--err); }
   footer { color: var(--faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
 </style>
 </head>
@@ -140,6 +148,20 @@
       <span class="chip" id="chipStyle" hidden>Style <b id="styleName"></b></span>
       <span class="chip" id="chipRel" hidden title="How closely two halves of the measurement agree. High means the reading is stable.">Measurement <b id="relPct"></b><span class="meter"><i id="relBar"></i></span></span>
       <span class="chip" id="chipTracks">Tracks <b id="tracks">0</b></span>
+    </div>
+  </section>
+
+  <section class="card" id="setup" aria-label="Audio driver setup" hidden>
+    <h2>Leungo needs the <span id="setupDriver">BlackHole</span> audio driver</h2>
+    <p id="setupLead">Leungo listens to your music through a virtual loopback device. It is not installed on this Mac yet.</p>
+    <ol>
+      <li>Install the driver (macOS asks for your password).</li>
+      <li>Restart your Mac if the installer says so. Leungo continues by itself once the driver appears.</li>
+      <li>In System Settings, Sound, choose <b>BlackHole 2ch</b> as the output.</li>
+    </ol>
+    <div class="actions">
+      <button class="primary" id="setupInstall">Install BlackHole 2ch</button>
+      <span id="setupDetail" role="status"></span>
     </div>
   </section>
 
@@ -257,9 +279,31 @@ $('adaptive').addEventListener('change', (e) => {
   fetch('/api/bypass/' + (e.target.checked ? 'off' : 'on'), { method: 'POST' }).catch(() => {});
 });
 
+// ---- driver setup
+$('setupInstall').addEventListener('click', () => {
+  $('setupInstall').disabled = true;
+  fetch('/api/setup/install', { method: 'POST' }).catch(() => {});
+});
+function renderSetup(setup) {
+  document.body.classList.toggle('setup-mode', !!setup);
+  $('setup').hidden = !setup;
+  if (!setup) return;
+  $('setupDriver').textContent = setup.driver;
+  const busy = setup.phase === 'downloading';
+  $('setupInstall').hidden = !setup.canInstall;
+  $('setupInstall').disabled = busy || setup.phase === 'opened';
+  $('setupInstall').textContent = setup.phase === 'failed' ? 'Try again' : 'Install BlackHole 2ch';
+  if (setup.phase === 'failed') $('setupInstall').disabled = false;
+  const detail = $('setupDetail');
+  detail.textContent = setup.canInstall ? setup.detail : 'Install a device matching "' + setup.driver + '" or change standalone.input_device in the config.';
+  detail.className = setup.phase === 'failed' ? 'failed' : '';
+}
+
 // ---- render state
 function render() {
   const d = state.data; if (!d) return;
+  renderSetup(d.setup);
+  if (d.setup) { $('stateText').textContent = 'Setup needed'; $('statePill').className = 'pill bypassed'; return; }
   const bypassed = !!d.bypassed;
   const pill = $('statePill');
   pill.className = 'pill ' + (bypassed ? 'bypassed' : d.state);

@@ -135,9 +135,13 @@ desktop's startup applications.
    ```sh
    xattr -dr com.apple.quarantine /Applications/Leungo.app
    ```
-3. Install the loopback device: `brew install --cask blackhole-2ch`
+3. Open the app. If the BlackHole loopback driver is missing, the dashboard
+   shows a setup screen with an **Install BlackHole 2ch** button. It downloads
+   the official installer, checks its SHA-256, and opens it; macOS asks for your
+   password, and may ask for a restart. Leungo continues by itself once the
+   driver appears. From a terminal, `leungo setup` does the same.
 4. Follow "Set it up" below. Where it says `leungo ...`, run it as
-   `/Applications/Leungo.app/Contents/MacOS/leungo ...`.
+   `/Applications/Leungo.app/Contents/MacOS/leungo-bin ...`.
 
 Checksums are published next to each download (`.sha256`). To build it
 yourself instead, use the steps under "Build and install".

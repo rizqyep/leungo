@@ -22,6 +22,58 @@ pub struct GuiShared {
     pub tuning_flag: PathBuf,
     pub sound_file: PathBuf,
     pub now_playing: Option<leungo_players::NowPlayingHandle>,
+    pub setup: Option<SetupShared>,
+}
+
+pub struct SetupShared {
+    pub install: Arc<Mutex<crate::setup::Install>>,
+    pub driver: String,
+}
+
+fn bind(port: u16) -> Result<TcpListener> {
+    let listener = TcpListener::bind(("127.0.0.1", port))
+        .with_context(|| format!("bind port {port} (in use? try --port)"))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
+}
+
+fn serve_once(listener: &TcpListener, shared: &GuiShared) {
+    match listener.accept() {
+        Ok((stream, _)) => handle_conn(stream, shared),
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        Err(e) => {
+            tracing::warn!("accept failed: {e}");
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    }
+}
+
+fn wait_for_driver(listener: &TcpListener, driver: &str, stop: &AtomicBool) -> Result<()> {
+    let shared = GuiShared {
+        status: Arc::new(Mutex::new(Status::default())),
+        spectrum: Arc::new(Mutex::new(Vec::new())),
+        bypass_flag: paths::bypass_flag_path(),
+        tuning_flag: paths::tuning_path(),
+        sound_file: paths::signature_path(),
+        now_playing: None,
+        setup: Some(SetupShared {
+            install: Arc::new(Mutex::new(crate::setup::Install::default())),
+            driver: driver.to_string(),
+        }),
+    };
+    let mut last_check = std::time::Instant::now();
+    while !stop.load(Ordering::Relaxed) {
+        serve_once(listener, &shared);
+        if last_check.elapsed() >= Duration::from_secs(2) {
+            last_check = std::time::Instant::now();
+            if crate::setup::driver_present(driver) {
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
@@ -36,6 +88,26 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         let stop2 = stop.clone();
         ctrlc::set_handler(move || stop2.store(true, Ordering::Relaxed))
             .context("install ctrl-c handler")?;
+    }
+
+    let port_listener = if crate::setup::driver_present(&cfg.standalone.input_device) {
+        None
+    } else {
+        let listener = bind(port)?;
+        let url = format!("http://127.0.0.1:{port}");
+        println!(
+            "leungo GUI: {url}  (waiting for the {} driver)",
+            cfg.standalone.input_device
+        );
+        if open_browser {
+            open_window(&url, &gui_open);
+        }
+        wait_for_driver(&listener, &cfg.standalone.input_device, &stop)?;
+        Some(listener)
+    };
+    let already_open = port_listener.is_some();
+    if stop.load(Ordering::Relaxed) {
+        return Ok(());
     }
 
     let platform = crate::platform::setup(&mut cfg, stop.clone())?;
@@ -97,29 +169,22 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         tuning_flag: paths::tuning_path(),
         sound_file: paths::signature_path(),
         now_playing,
+        setup: None,
     };
 
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .with_context(|| format!("bind port {port} (in use? try --port)"))?;
-    listener.set_nonblocking(true)?;
+    let listener = match port_listener {
+        Some(l) => l,
+        None => bind(port)?,
+    };
     let url = format!("http://127.0.0.1:{port}");
     println!("leungo GUI: {url}  (ctrl-c to stop)");
 
-    if open_browser {
+    if open_browser && !already_open {
         open_window(&url, &gui_open);
     }
 
     while !stop.load(Ordering::Relaxed) {
-        match listener.accept() {
-            Ok((stream, _)) => handle_conn(stream, &shared),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                tracing::warn!("accept failed: {e}");
-                std::thread::sleep(Duration::from_millis(500));
-            }
-        }
+        serve_once(&listener, &shared);
     }
     stop.store(true, Ordering::Relaxed);
     let _ = engine_handle.join();
@@ -247,6 +312,13 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
             let body = serde_json::to_vec(&state_json(shared)).unwrap_or_default();
             respond(&mut stream, 200, "application/json", &body);
         }
+        ("POST", "/api/setup/install") => match &shared.setup {
+            Some(setup) => {
+                start_install(setup);
+                respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+            }
+            None => respond(&mut stream, 404, "text/plain", b"not found"),
+        },
         ("POST", "/api/bypass/on") => {
             let _ = std::fs::write(&shared.bypass_flag, "");
             respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
@@ -300,6 +372,42 @@ fn sound_json(query: &str) -> Option<String> {
     Some(serde_json::Value::Object(out).to_string())
 }
 
+fn start_install(setup: &SetupShared) {
+    use crate::setup::{Phase, install_driver};
+    {
+        let Ok(mut cur) = setup.install.lock() else {
+            return;
+        };
+        if cur.phase == Phase::Downloading {
+            return;
+        }
+        cur.phase = Phase::Downloading;
+        cur.detail = "Starting".into();
+    }
+    let state = setup.install.clone();
+    std::thread::spawn(move || {
+        let report = |phase: Phase, detail: &str| {
+            if let Ok(mut cur) = state.lock() {
+                cur.phase = phase;
+                cur.detail = detail.to_string();
+            }
+        };
+        if let Err(e) = install_driver(&report) {
+            report(Phase::Failed, &format!("{e:#}"));
+        }
+    });
+}
+
+fn setup_json(setup: &SetupShared) -> serde_json::Value {
+    let cur = setup.install.lock().map(|c| c.clone()).unwrap_or_default();
+    json!({
+        "driver": setup.driver,
+        "canInstall": crate::setup::is_blackhole(&setup.driver),
+        "phase": cur.phase.as_str(),
+        "detail": cur.detail,
+    })
+}
+
 fn state_json(shared: &GuiShared) -> serde_json::Value {
     let status = shared.status.lock().unwrap().clone();
     let spectrum = shared.spectrum.lock().unwrap().clone();
@@ -329,6 +437,7 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "message": status.message,
         "spectrum": spectrum,
         "bandFreqs": BAND_FREQS.to_vec(),
+        "setup": shared.setup.as_ref().map(setup_json),
     })
 }
 
