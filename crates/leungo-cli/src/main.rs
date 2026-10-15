@@ -74,7 +74,7 @@ enum Cmd {
     Devices,
     /// Put the system output back after an unclean exit (macOS).
     Restore,
-    /// Check the audio prerequisites and install the BlackHole driver (macOS).
+    /// Check the audio prerequisites (EasyEffects on Linux, BlackHole on macOS) and install the BlackHole driver.
     Setup,
     /// Print the config file path.
     ConfigPath,

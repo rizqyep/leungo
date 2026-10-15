@@ -429,3 +429,6 @@ macOS limitations:
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+- [TECHNICAL.md](TECHNICAL.md): how the engine, measurement and solver work, and what is not verified.
+- [CONTRIBUTING.md](CONTRIBUTING.md): setup, checks, platform-specific code, and how to report problems.
