@@ -75,6 +75,9 @@ pub struct GuiShared {
     pub setup: Option<SetupShared>,
     pub devices: (String, String),
     pub active: String,
+    /// Where the engine records from when the platform picks it itself
+    /// (Linux). Empty when the user chooses devices.
+    pub capture_source: String,
     pub presence: Arc<Presence>,
 }
 
@@ -142,6 +145,7 @@ fn wait_for_setup(
         }),
         devices: (devices.0.to_string(), devices.1.to_string()),
         active: devices.1.to_string(),
+        capture_source: String::new(),
         presence: presence.clone(),
     };
     let mut last_check = std::time::Instant::now();
@@ -250,6 +254,8 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         return Ok(());
     }
 
+    #[cfg(target_os = "linux")]
+    let cfg_capture_source = cfg.capture.source.clone();
     let mut platform = crate::platform::setup(&mut cfg, stop.clone())?;
     if let Some(r) = route.as_mut() {
         r.activate()?;
@@ -304,6 +310,11 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
             .context("spawn status writer thread")?;
     }
 
+    #[cfg(target_os = "linux")]
+    let capture_source = leungo_capture_pipewire::source_name(&cfg_capture_source);
+    #[cfg(not(target_os = "linux"))]
+    let capture_source = String::new();
+
     let bypass_flag = paths::bypass_flag_path();
     if let Some(parent) = bypass_flag.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -318,6 +329,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         setup: None,
         devices,
         active,
+        capture_source,
         presence,
     };
 
@@ -483,6 +495,10 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
                 "input": shared.devices.0,
                 "output": shared.devices.1,
                 "active": shared.active,
+                // Linux has nothing to choose: the source is the EasyEffects
+                // monitor and playback goes wherever EasyEffects sends it.
+                "selectable": cfg!(target_os = "macos"),
+                "captureSource": shared.capture_source,
             });
             respond(
                 &mut stream,

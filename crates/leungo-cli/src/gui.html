@@ -129,7 +129,7 @@
   #simpleOut option, .devices option, #setup option { color: var(--paper); background: var(--panel-2); }
   #simpleOut option:disabled, .devices option:disabled, #setup option:disabled { color: var(--faint); }
   #simpleOut select:focus-visible, .devices select:focus-visible, #setup select:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
-  .devices[hidden], #setupOutput[hidden], #setupDriverBlock[hidden], #setupEffects[hidden] { display: none; }
+  .devices[hidden], #devChoose[hidden], #devFixed[hidden], #setupOutput[hidden], #setupDriverBlock[hidden], #setupEffects[hidden] { display: none; }
   #setupEffects code { display: block; margin: 12px 0 16px; padding: 10px 12px; background: var(--panel-2);
     border: 1px solid var(--line, #2a2a2a); border-radius: 6px; color: var(--paper); user-select: all; overflow-x: auto; }
   .hint.warn { color: var(--err); }
@@ -147,6 +147,9 @@
   #simpleOutNote { margin: 8px 0 0; }
   #loadingCard { display: none; color: var(--dim); }
   .loading #loadingCard { display: block; }
+  .no-device-choice #simpleOut { display: none; }
+  .devices .fixed { margin: 0; color: var(--dim); }
+  .devices .fixed code { color: var(--paper); }
   .loading .now, .loading .layout, .loading #setup, .loading #devices { display: none; }
   .devices select:disabled, #setup select:disabled { opacity: .7; cursor: progress; }
   footer { color: var(--faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
@@ -226,10 +229,17 @@
   </section>
 
   <section class="card devices" id="devices" aria-label="Audio devices" hidden>
-    <h2>Audio devices</h2>
-    <div class="row"><label for="dev_in">Capture</label><select id="dev_in" disabled><option>Loading devices...</option></select></div>
-    <div class="row"><label for="dev_out">Play to</label><select id="dev_out" disabled><option>Loading devices...</option></select></div>
-    <p class="hint" id="devHint">Changing a device restarts the audio engine for a moment.</p>
+    <h2 id="devTitle">Audio devices</h2>
+    <div id="devChoose">
+      <div class="row"><label for="dev_in">Capture</label><select id="dev_in" disabled><option>Loading devices...</option></select></div>
+      <div class="row"><label for="dev_out">Play to</label><select id="dev_out" disabled><option>Loading devices...</option></select></div>
+      <p class="hint" id="devHint">Changing a device restarts the audio engine for a moment.</p>
+    </div>
+    <div id="devFixed" hidden>
+      <div class="row"><label>Capture</label><span class="fixed"><code id="fixedIn"></code></span></div>
+      <div class="row"><label>Play to</label><span class="fixed">Through EasyEffects, to your system output</span></div>
+      <p class="hint">Nothing to choose here: leungo listens to the EasyEffects sink and EasyEffects plays to the output you set in your sound settings.</p>
+    </div>
   </section>
 
   <div class="layout">
@@ -425,6 +435,15 @@ async function refreshDevices() {
     return;
   }
   dev.fails = 0;
+  const fixedPath = dev.selectable === false;
+  document.body.classList.toggle('no-device-choice', fixedPath);
+  $('devChoose').hidden = fixedPath;
+  $('devFixed').hidden = !fixedPath;
+  $('devTitle').textContent = fixedPath ? 'Audio path' : 'Audio devices';
+  if (fixedPath) {
+    $('fixedIn').textContent = (dev.captureSource || 'system monitor') + ' (PipeWire)';
+    return;
+  }
   fillSelect($('dev_in'), dev.inputs, dev.input, 'Choose an input');
   fillSelect($('dev_out'), dev.outputs, dev.output, 'Choose an output', true);
   fillSelect($('simple_out'), dev.outputs, dev.output, 'Choose an output', true);

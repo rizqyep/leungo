@@ -101,6 +101,11 @@ pub fn pick_source(configured: &str, short_sources: &str) -> String {
     configured.to_string()
 }
 
+/// The source leungo records from for this configuration, for display.
+pub fn source_name(configured: &str) -> String {
+    resolve_source(configured)
+}
+
 fn resolve_source(configured: &str) -> String {
     let listing = std::process::Command::new("pactl")
         .args(["list", "short", "sources"])
