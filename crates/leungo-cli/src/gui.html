@@ -369,12 +369,16 @@ async function refreshDevices() {
     const r = await fetch('/api/devices', { cache: 'no-store' });
     Object.assign(dev, await r.json());
   } catch (e) {
+    dev.fails = (dev.fails || 0) + 1;
+    const msg = dev.fails >= 3 ? 'Could not load devices, retrying...' : 'Loading devices...';
     ['dev_in', 'dev_out', 'setupOutputSelect'].forEach((id) => {
       const el = $(id);
-      if (el.disabled && el.options.length === 1) el.options[0].textContent = 'Could not load devices, retrying...';
+      if (el.disabled && el.options.length === 1) el.options[0].textContent = msg;
     });
+    if (dev.fails < 3) setTimeout(refreshDevices, 800);
     return;
   }
+  dev.fails = 0;
   fillSelect($('dev_in'), dev.inputs, dev.input, 'Choose an input');
   fillSelect($('dev_out'), dev.outputs, dev.output, 'Choose an output');
   fillSelect($('setupOutputSelect'), dev.outputs, dev.output, 'Choose an output');

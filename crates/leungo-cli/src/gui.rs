@@ -114,23 +114,20 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         cfg.standalone.input_device.clone(),
         cfg.standalone.output_device.clone(),
     );
-    let port_listener = match crate::setup::blocker(&devices.0, &devices.1) {
-        None => None,
-        Some(blocker) => {
-            let listener = bind(port)?;
-            let url = format!("http://127.0.0.1:{port}");
-            println!(
-                "leungo GUI: {url}  (waiting for audio setup: {})",
-                blocker.as_str()
-            );
-            if open_browser {
-                open_window(&url, &gui_open);
-            }
-            wait_for_setup(&listener, (&devices.0, &devices.1), blocker, &stop)?;
-            Some(listener)
+    let listener = bind(port)?;
+    let url = format!("http://127.0.0.1:{port}");
+    let mut already_open = false;
+    if let Some(blocker) = crate::setup::blocker(&devices.0, &devices.1) {
+        println!(
+            "leungo GUI: {url}  (waiting for audio setup: {})",
+            blocker.as_str()
+        );
+        if open_browser {
+            open_window(&url, &gui_open);
         }
-    };
-    let already_open = port_listener.is_some();
+        already_open = true;
+        wait_for_setup(&listener, (&devices.0, &devices.1), blocker, &stop)?;
+    }
     if stop.load(Ordering::Relaxed) {
         return Ok(());
     }
@@ -198,11 +195,6 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool) -> Result<()> {
         devices,
     };
 
-    let listener = match port_listener {
-        Some(l) => l,
-        None => bind(port)?,
-    };
-    let url = format!("http://127.0.0.1:{port}");
     println!("leungo GUI: {url}  (ctrl-c to stop)");
 
     if open_browser && !already_open {
