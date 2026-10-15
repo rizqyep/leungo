@@ -236,7 +236,7 @@ pub struct EqCfg {
     pub percussive_relief: f64,
     /// Judge drums per band instead of per track: a band's cut is eased by
     /// how much of that band is drum hits (kick punch stays, a boomy bass
-    /// line still gets cut). Off until A/B'd.
+    /// line still gets cut). On by default since 0.1.7.
     pub per_band_punch: bool,
     /// Fraction of `device_curve` that is applied, 0..=1. Below 1 keeps some
     /// of the headphone's own character instead of neutralizing it fully.
@@ -259,7 +259,7 @@ impl Default for EqCfg {
             deadzone_db: 2.0,
             residual_cap_db: 6.0,
             percussive_relief: 0.5,
-            per_band_punch: false,
+            per_band_punch: true,
             device_strength: 0.6,
             signature: leungo_eq::Signature::default(),
         }

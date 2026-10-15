@@ -35,7 +35,7 @@ pub struct Status {
     pub signature: leungo_eq::Signature,
     #[serde(default = "default_device_strength")]
     pub device_strength: f64,
-    /// `eq.per_band_punch`, switchable live from the dashboard.
+    /// `eq.per_band_punch` ("Drum attack" in the dashboard), switchable live.
     #[serde(default)]
     pub punch: bool,
 }
@@ -62,7 +62,7 @@ impl Default for Status {
             reliability: 0.0,
             signature: leungo_eq::Signature::default(),
             device_strength: default_device_strength(),
-            punch: false,
+            punch: true,
         }
     }
 }

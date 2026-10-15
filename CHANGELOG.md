@@ -3,6 +3,16 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.1.7
+
+- Drum attack is now on by default and has a clearer description in the
+  dashboard: it keeps the hit of kicks and snares while boomy bass lines
+  and muddy low mids still get cleaned up. Turn it off for the plain
+  correction.
+- If your `config.toml` already says `per_band_punch = false` (for example
+  after running `leungo device`), it stays off. Switch it on once in the
+  dashboard's Sound card.
+
 ## v0.1.6
 
 ### Song analysis
