@@ -26,17 +26,20 @@ slope.
 
 ## Data flow
 
-```
-audio source (platform)            SampleSource
-  -> frames (FFT 2048, hop 1024, 48 kHz)
-  -> per-frame 1/3-octave levels, silence gate
-  -> track boundary: player track id (preferred), otherwise silence gap
-  -> robust shape + reliability + transient fraction   (leungo-analysis)
-  -> archetype label (once per track)
-  -> remove tilt, dead zone, cap, scale by strength    (leungo-eq)
-  -> ridge least squares onto 8 peaking bands
-  -> add device curve and sound signature, shift for headroom
-  -> EqApplier (platform)
+```mermaid
+flowchart TD
+    SRC["Audio source<br/>(SampleSource, per platform)"] --> FR["Frames: FFT 2048, hop 1024, 48 kHz<br/>1/3-octave levels, silence gate"]
+    PL["Player track id<br/>(MPRIS or AppleScript)"] --> TB{"New track?"}
+    FR --> TB
+    TB -->|yes| WIN["Collect first window<br/>6 s of non-silent audio"]
+    TB -->|no| REF["Refine every 5 s<br/>(see engine below)"]
+    WIN --> MEAS["Robust shape, reliability,<br/>transient fraction"]
+    REF --> MEAS
+    MEAS --> CLS["Archetype label<br/>decided once per track"]
+    CLS --> SHP["Remove tilt, dead zone, cap,<br/>percussive relief"]
+    SHP --> FIT["Ridge least squares onto 8 bands,<br/>scale by strength and reliability"]
+    FIT --> ADD["Add device curve<br/>and sound signature,<br/>clamp to 12 dB"]
+    ADD --> APP["EqApplier<br/>(EasyEffects preset or in-process biquads)"]
 ```
 
 Platform-specific code is limited to two traits in `leungo-core`:
@@ -61,6 +64,40 @@ The engine knows nothing about PulseAudio, EasyEffects, CoreAudio or BlackHole.
 | `leungo-standalone` | macOS engine: loopback capture, resampling, drift control, in-process filters |
 | `leungo-cli` | The `leungo` binary, dashboard server, setup flows |
 
+```mermaid
+flowchart TB
+    CLI["leungo-cli<br/>binary, dashboard, setup"]
+
+    subgraph IN["Inputs, one per platform"]
+        direction LR
+        S1["Linux<br/>leungo-capture-pipewire<br/>easyeffects_sink.monitor"]
+        S2["macOS<br/>leungo-standalone<br/>BlackHole capture"]
+        P1["leungo-players<br/>MPRIS or AppleScript"]
+    end
+
+    subgraph CORE["Platform independent"]
+        direction LR
+        ENG["leungo-core<br/>engine, config"]
+        ANA["leungo-analysis<br/>spectrum, shape, classifier"]
+        EQ["leungo-eq<br/>shaping, solver, device"]
+        DSP["leungo-dsp<br/>biquads"]
+        ENG --> ANA
+        ENG --> EQ
+        EQ --> DSP
+    end
+
+    subgraph OUT["Outputs, one per platform"]
+        direction LR
+        A1["Linux<br/>leungo-applier-ee<br/>EasyEffects preset"]
+        A2["macOS<br/>leungo-standalone<br/>biquads, real output device"]
+    end
+
+    CLI --> CORE
+    IN -->|"SampleSource, track ids"| CORE
+    CORE -->|EqApplier| OUT
+```
+
+
 `leungo-capture-pipewire` is empty off Linux and `leungo-standalone`'s audio
 I/O is behind the `audio-io` feature, so the workspace builds everywhere and the
 pure logic (resampler, drift controller, filter chain) is tested on Linux.
@@ -69,8 +106,20 @@ pure logic (resampler, drift controller, filter chain) is tested on Linux.
 
 `leungo-core/src/engine.rs`. One thread, one loop over chunks from the source.
 
-States: `Idle` (silence or no track), `Analyzing` (collecting the first
-window), `Active` (a curve is applied, refining).
+States: `Idle` (nothing analyzed yet, or the music stopped before the first
+window was complete), `Analyzing` (collecting the first window), `Active` (a
+curve is applied, refining). `Active` is left only by a new track.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Analyzing: sound after silence, or new track id
+    Idle --> Active: same track resumed after a stop
+    Analyzing --> Active: window complete, curve applied
+    Analyzing --> Idle: silence for 4 x gap_s
+    Active --> Analyzing: new track id, or silence gap then sound
+    Active --> Active: refine every 5 s
+```
 
 1. **New track.** The player reports a new track id (or, with no player, a
    silence gap of `gap_s = 1.2` s followed by sound). The engine resets the
@@ -92,6 +141,18 @@ window), `Active` (a curve is applied, refining).
 5. **Archetype lock.** The archetype and its confidence are decided once from
    the first window and reused by refinement, so the target tilt does not flip
    between sections.
+
+```mermaid
+flowchart TD
+    T["Every refine_interval_s = 5 s"] --> S["Solve from the running measurement<br/>label and confidence kept"]
+    S --> D{"Any band still 1 dB or more<br/>from the solved curve?"}
+    D -->|no| N["Do nothing"]
+    D -->|yes| ST["Move each band toward it:<br/>35 percent of the gap, at most 1.5 dB"]
+    ST --> Q["Queue as pending"]
+    Q --> W{"Level dip of about 4 dB,<br/>or 10 s passed?"}
+    W -->|no| Q
+    W -->|yes| A["Apply"]
+```
 
 There is no section or "drastic change" detector. Section changes are followed
 only through the slowly moving measurement.
@@ -139,17 +200,41 @@ about 50 Hz. 1/3-octave bands narrower than a bin are dropped by the solver.
    `±residual_cap_db = 6`. Points outside 50 Hz to 10 kHz get no correction
    (sub-bass and codec cutoffs). The dead zone can be set per point, which is
    how percussive material is given more room.
-4. Add the archetype's small tilt (at most 1.5 dB per band) and the user's
-   `base_curve`.
-5. Scale by `strength = 0.5`, reliability, and classifier confidence, and
-   reduce bass/treble by the percussive relief.
-6. Fit **8 peaking biquads** at 63, 125, 250, 500, 1k, 2k, 4k, 8k Hz, Q 1.41,
-   each limited to ±12 dB, by ridge-regularized least squares (`ridge = 0.05`)
-   on the log-frequency axis.
-7. Add the device curve (scaled by `device_strength = 0.6`) and the sound
-   signature (shelves and a presence/air shape), then shift the whole curve so
-   the largest boost is 0 dB. The result never raises the level, so there is no
-   clipping risk from the EQ.
+4. Reduce the bass and treble ends of that residual by `percussive_relief`
+   scaled by the transient fraction (`edge_weight` is 0 in the middle of the
+   spectrum and 1 at the ends).
+5. Solve for the band gains that move the residual toward the target
+   `base_curve + archetype delta` (`leungo-core/src/config.rs::target_delta`).
+   The mean is removed first, because a peaking EQ cannot apply a constant
+   shift and overall level is loudness, not timbre. The fit is ridge-regularized
+   least squares (`ridge = 0.05`) on the log-frequency axis, run twice with each
+   band clamped to ±12 dB, onto **8 peaking biquads** at 63, 125, 250, 500, 1k,
+   2k, 4k, 8k Hz with Q 1.41.
+6. Multiply the track correction by `strength * (0.5 + 0.5 * reliability)`.
+   Classifier confidence is **not** part of this; it is displayed and logged.
+7. Add `device_strength * eq.device_curve` and the sound signature gains, then
+   clamp each band to ±12 dB.
+
+Headroom is handled in two places, not one: the device curve is shifted so its
+largest boost is 0 dB when it is built (`leungo device`), and the signature
+gains are shifted so they never add a net boost. The track correction itself is
+not shifted and can boost a band (bounded by the 6 dB cap and `strength`), so
+there is no hard guarantee that the output level cannot rise.
+
+```mermaid
+flowchart TD
+    M["Measured 1/3-octave shape"] --> TL["Theil-Sen line<br/>in log frequency"]
+    TL --> R["Residual = shape minus line<br/>only 50 Hz to 10 kHz"]
+    R --> DZ["Soft dead zone 2 dB<br/>clamp to plus or minus 6 dB"]
+    DZ --> PR["Percussive relief<br/>at bass and treble ends"]
+    TG["Target =<br/>base_curve + archetype delta"] --> LS
+    PR --> LS["Remove mean, ridge least squares<br/>8 peaking biquads, Q 1.41, 12 dB limit"]
+    LS --> SC["x strength x<br/>0.5 + 0.5 x reliability"]
+    SC --> SUM(("+"))
+    DEV["device_curve x device_strength"] --> SUM
+    SIG["Sound signature<br/>never a net boost"] --> SUM
+    SUM --> CL["Clamp each band to 12 dB"]
+```
 
 Eight broad bands cannot follow narrow notches (for example a 5 kHz IEM
 resonance). The device fit reports its rms error for that reason.
@@ -276,6 +361,10 @@ Window opening (`gui.open`): `app` launches a Chromium-family browser with
 
 ## Known gaps
 
+- `eq.base_curve` is part of the target the solver fits, so it is scaled by
+  `strength` along with everything else in the track correction. A curve meant
+  to be applied in full belongs in `eq.device_curve`, which is not scaled by
+  `strength`.
 - No per-output-device profiles: one `device_curve` is applied to whatever is
   playing.
 - No awareness of playback level (equal-loudness effects), because the monitor

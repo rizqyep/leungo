@@ -120,36 +120,26 @@ config file and building from source.
 
 ## How it works
 
+Leungo listens to what is playing, measures its tonal balance, and applies a
+small, bounded 8-band EQ correction for that track, on top of an optional
+correction for your headphones. It does not push every song toward one curve:
+a song's own tilt is left alone, and only bumps and dips outside a dead zone are
+corrected.
+
+```mermaid
+flowchart LR
+    A["Audio you are playing"] --> B["Measure<br/>1/3-octave balance<br/>and how reliable it is"]
+    T["Track change<br/>from your player"] --> C
+    B --> C["Correct only what is<br/>outside the normal range"]
+    C --> D["Fit 8 EQ bands"]
+    P["Your headphone profile<br/>and sound style"] --> E
+    D --> E["Apply"]
+    E --> F["Your speakers or<br/>headphones"]
 ```
-capture (default-sink monitor)
-  -> FFT spectrum, long-term average per track
-  -> silence gate + track-change detection (player track ids, silence gaps)
-  -> feature extraction (band energies, centroid, rolloff, crest)
-  -> archetype classification (bass-heavy / vocal-centric / guitar-band /
-     bright-acoustic / neutral)
-  -> target curve (base curve + archetype delta)
-  -> least-squares fit of 8 peaking biquads
-  -> EasyEffects preset write + preset load
-```
 
-Only content is corrected: the deviation is level-normalized, so volume
-changes and master loudness never distort the result. Your own IEM corrections
-stay on top through `eq.base_curve`, so the adaptive layer fixes the track,
-not your headphones.
-
-New tracks switch at once, and in-track refinement is slow and switched in at quiet moments.
-
-The track's own spectral tilt is fitted with a robust line (median of pairwise slopes) and left alone. Only bumps and dips beyond `deadzone_db`, capped at `residual_cap_db`, are corrected, scaled by `strength` and classifier confidence. The device curve is added in full afterwards.
-
-### How the spectrum is measured
-
-- Each analysis frame's 1/3-octave levels are normalized by that frame's own overall level, so playback volume does not change the result.
-- Frames more than 10 dB below the median frame level are ignored. The median (not mean power) is used so a short loud burst cannot gate out the quiet majority.
-- The shape is the per-band median over the last `shape_window_s` seconds, so loud passages do not decide it.
-- Reliability is the split-half agreement. The first and second half of the window are measured separately: 1.0 means they agree, 0 means they differ by 6 dB rms or more. It scales the correction strength (`strength x (0.5 + 0.5 x reliability)`) and is shown in the dashboard. It says how repeatable the measurement is, not whether the result sounds right.
-- A transient-energy fraction (the share of band energy that is a short excess over each band's own 9-frame temporal median) is used as a proxy for percussive material. Percussive material is expected to be higher in bass and treble, so those corrections are reduced by `percussive_relief`. The mapping from the fraction to 0..1 (0.15 to 0.45) has not been calibrated against real music. The fraction and reliability are written to `tracks.jsonl` (version 2 rows) so it can be.
-- The archetype label is decided once from the first window and is not changed during the track.
-
+New tracks switch at once. In-track refinement is slow and switched in at quiet
+moments. The technical details (measurement, the solver, the state machine,
+what is verified and what is not) are in [TECHNICAL.md](TECHNICAL.md).
 
 ## Device profile
 
@@ -275,8 +265,8 @@ Tuning tips:
 - Run `calibrate` once with the preset you already use, so your IEM
   corrections are baked into `base_curve`.
 - `strength` is the main taste knob. 0.3-0.5 keeps most of the mastering
-  intent, 1.0 flattens every track toward the target. Low classifier
-  confidence shrinks it further.
+  intent, 1.0 flattens every track toward the target. A less repeatable
+  measurement (lower reliability) shrinks it further.
 - In-track curve changes are held until a dip in level (a rest, a breath, a
   phrase gap) so the switch is hidden, or until `defer_max_s` passes. New
   tracks apply immediately.
@@ -348,23 +338,10 @@ They map to the conservative, balanced, aggressive and custom presets.
 
 ## Architecture
 
-```
-crates/
-  leungo-dsp               RBJ biquads, magnitude response, DF-I state
-  leungo-eq                archetypes, target curves, least-squares EQ solver
-  leungo-analysis          FFT spectrum, features, track detector, classifier
-  leungo-core              config, engine state machine, traits, offline analysis
-  leungo-capture-pipewire  monitor capture via the PulseAudio API
-  leungo-players           track changes and now-playing: MPRIS (Linux), AppleScript (macOS)
-  leungo-standalone        macOS engine: loopback capture, resampling, in-process filters
-  leungo-applier-ee        EasyEffects preset writer/loader + bypass
-  leungo-cli               the leungo binary
-```
-
-The capture and applier traits (`SampleSource`, `EqApplier`) are the platform
-seams: a Windows build swaps in a WASAPI loopback source and an Equalizer APO
-writer without touching the engine.
-
+A small platform-independent core (analysis, EQ solver, engine) sits between a
+per-platform audio source and EQ applier, so Linux (EasyEffects) and macOS
+(in-process, BlackHole) share the same engine. The crate layout, data flow and
+diagrams are in [TECHNICAL.md](TECHNICAL.md#crates).
 
 ## macOS from source
 
