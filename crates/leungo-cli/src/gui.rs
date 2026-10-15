@@ -143,6 +143,7 @@ fn respond(stream: &mut TcpStream, code: u16, ctype: &str, body: &[u8]) {
 }
 
 /// Chromium-family browsers that support `--app=URL`, in order of preference.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const APP_BROWSERS: [&str; 6] = [
     "google-chrome-stable",
     "google-chrome",
@@ -152,10 +153,12 @@ const APP_BROWSERS: [&str; 6] = [
     "microsoft-edge",
 ];
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn pick_app_browser(exists: impl Fn(&str) -> bool) -> Option<&'static str> {
     APP_BROWSERS.iter().copied().find(|b| exists(b))
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn on_path(name: &str) -> bool {
     std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()))
