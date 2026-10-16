@@ -43,7 +43,6 @@ pub fn pick_real_output(
     outputs.iter().find(|o| !is_loopback(o)).cloned()
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// What to put back on exit: the output in use before leungo, never the
 /// loopback device itself.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
