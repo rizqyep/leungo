@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use leungo_core::{Engine, Status, paths};
 use leungo_eq::BAND_FREQS;
 mod gui;
+mod headphones;
 mod platform;
 mod routing;
 mod setup;
@@ -171,6 +172,7 @@ fn run() -> Result<()> {
     let mut engine = Engine::new(cfg, platform.source, platform.applier, status, stop.clone());
     engine.set_tuning_path(paths::tuning_path());
     engine.set_signature_path(paths::signature_path());
+    engine.set_headphone_path(paths::active_headphone_path());
     if let Some(rx) = platform.track_events {
         engine.set_track_events(rx);
     }
@@ -411,9 +413,7 @@ fn calibrate(preset: &str) -> Result<()> {
 }
 
 fn device(files: &[PathBuf], target: Option<&Path>) -> Result<()> {
-    use leungo_eq::device::{consensus_db, parse_parametric};
-    use leungo_eq::fit::{FitOptions, fit};
-    use leungo_eq::fr;
+    use leungo_core::headphones::{fit_measurements, fit_parametric};
 
     ensure!(!files.is_empty(), "give at least one measurement file");
     let is_csv = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("csv"));
@@ -424,60 +424,25 @@ fn device(files: &[PathBuf], target: Option<&Path>) -> Result<()> {
     );
     let mut cfg = paths::load_or_create_config()?;
     let fs = cfg.capture.rate as f64;
-    let pts = fr::grid();
     let read =
         |p: &Path| std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()));
+    let texts = files.iter().map(|f| read(f)).collect::<Result<Vec<_>>>()?;
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
 
-    let (correction, spread) = if csv > 0 {
-        let mut curves = Vec::new();
-        for f in files {
-            let r =
-                fr::parse_csv(&read(f)?).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
-            curves.push(fr::normalized_on(&r, &pts));
-        }
+    let fitted = if csv > 0 {
         let target_text = match target {
             Some(t) => read(t)?,
-            None => fr::HARMAN_IE_2019.to_string(),
+            None => leungo_eq::fr::HARMAN_IE_2019.to_string(),
         };
-        let t = fr::parse_csv(&target_text).map_err(|e| anyhow::anyhow!("target: {e}"))?;
-        let cons = fr::consensus(&curves, &pts);
-        let corr = fr::correction(
-            &pts,
-            &fr::normalized_on(&t, &pts),
-            &cons,
-            &fr::CorrectionLimits::default(),
-        );
-        (corr, cons.spread_db)
+        fit_measurements(&texts, &target_text, fs)?
     } else {
         ensure!(
             target.is_none(),
             "--target only applies to CSV measurements"
         );
-        let mut profiles = Vec::new();
-        for f in files {
-            profiles.push(
-                parse_parametric(&read(f)?).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?,
-            );
-        }
-        (consensus_db(&profiles, &pts, fs), vec![0.0; pts.len()])
+        fit_parametric(&texts, fs)?
     };
-
-    let opt = FitOptions {
-        fs,
-        ..FitOptions::default()
-    };
-    let result = fit(&pts, &correction, &vec![1.0; pts.len()], &opt);
-    let round = |v: f64, step: f64| (v / step).round() * step;
-    cfg.eq.device_filters = result
-        .filters
-        .iter()
-        .map(|f| leungo_eq::device::Filter {
-            fc: round(f.fc, 1.0),
-            gain_db: round(f.gain_db, 0.01),
-            q: round(f.q, 0.01),
-            ..*f
-        })
-        .collect();
+    cfg.eq.device_filters = fitted.filters;
     // the old 8-band curve would apply twice
     cfg.eq.device_curve = vec![0.0; cfg.eq.frequencies.len()];
     paths::save_config(&cfg)?;
@@ -492,21 +457,19 @@ fn device(files: &[PathBuf], target: Option<&Path>) -> Result<()> {
             f.q
         );
     }
-    let worst = pts
-        .iter()
-        .zip(&spread)
-        .filter(|(f, _)| **f <= 10_000.0)
-        .max_by(|a, b| a.1.total_cmp(b.1));
-    if csv > 1
-        && let Some((f, s)) = worst
-    {
+    if let Some((f, s)) = fitted.worst_spread {
         println!("largest disagreement between sources: {s:.1} dB at {f:.0} Hz");
     }
-    println!("fit error: {:.2} dB rms", result.rms_db);
+    println!("fit error: {:.2} dB rms", fitted.rms_db);
     println!(
         "applied at device strength {:.0}%",
         cfg.eq.device_strength * 100.0
     );
+    if paths::active_headphone_path().exists() {
+        println!(
+            "note: a headphone picked in the dashboard overrides this; clear it there to use this one"
+        );
+    }
     Ok(())
 }
 

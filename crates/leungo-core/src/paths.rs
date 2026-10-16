@@ -112,6 +112,21 @@ pub fn save_device_choice(input: &str, output: &str) -> Result<()> {
     std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))
 }
 
+/// Stored headphone profiles, one folder each (inputs + `profile.json`).
+pub fn headphones_dir() -> PathBuf {
+    config_path().with_file_name("headphones")
+}
+
+/// The headphone profile in use; the engine polls it.
+pub fn active_headphone_path() -> PathBuf {
+    config_path().with_file_name("headphone.json")
+}
+
+/// Cached AutoEq name index, refreshed about monthly.
+pub fn autoeq_index_path() -> PathBuf {
+    state_dir().join("autoeq-index.md")
+}
+
 pub fn ui_path() -> PathBuf {
     config_path().with_file_name("ui.json")
 }

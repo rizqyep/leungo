@@ -12,3 +12,4 @@ toml = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
 tracing = { workspace = true }
+ureq = { workspace = true }

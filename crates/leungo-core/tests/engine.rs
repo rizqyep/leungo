@@ -637,3 +637,92 @@ fn sound_file_changes_the_curve_and_the_status() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Writes the headphone profile partway through the stream, like a pick
+/// in the dashboard while a song plays.
+struct PickMidway {
+    events: std::vec::IntoIter<SourceEvent>,
+    at: usize,
+    idx: usize,
+    path: std::path::PathBuf,
+    body: String,
+}
+
+impl SampleSource for PickMidway {
+    fn next(&mut self) -> Result<SourceEvent> {
+        if self.idx == self.at {
+            std::fs::write(&self.path, &self.body).unwrap();
+        }
+        self.idx += 1;
+        Ok(self.events.next().unwrap_or(SourceEvent::Ended))
+    }
+}
+
+struct DeviceApplier(Arc<Mutex<Vec<Vec<leungo_eq::device::Filter>>>>);
+
+impl EqApplier for DeviceApplier {
+    fn apply_eq(&mut self, eq: &EqOutput) -> Result<()> {
+        self.0.lock().unwrap().push(eq.device.clone());
+        Ok(())
+    }
+
+    fn set_bypass(&mut self, _on: bool) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn picking_a_headphone_swaps_the_device_stage_mid_song() {
+    use leungo_core::headphones::Profile;
+    use leungo_eq::device::{Filter, Kind};
+
+    let dir = std::env::temp_dir().join(format!("leungo-hp-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("headphone.json");
+    let _ = std::fs::remove_file(&path);
+    let profile = Profile {
+        name: "Test IEM".into(),
+        sources: vec!["Someone".into()],
+        target: "Harman in-ear 2019".into(),
+        filters: vec![Filter {
+            kind: Kind::LowShelf,
+            fc: 300.0,
+            gain_db: -6.0,
+            q: 0.7,
+        }],
+        rms_db: 0.3,
+    };
+    let applied = Arc::new(Mutex::new(Vec::new()));
+    let status = Arc::new(Mutex::new(Status::default()));
+    let mut engine = Engine::new(
+        Config::default(),
+        Box::new(PickMidway {
+            events: tone_chunks(VOCAL_TRACK, 14.0).into_iter(),
+            at: chunk_after(10.0),
+            idx: 0,
+            path: path.clone(),
+            body: serde_json::to_string(&profile).unwrap(),
+        }),
+        Box::new(DeviceApplier(applied.clone())),
+        status.clone(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    engine.set_headphone_path(path.clone());
+    engine.run().unwrap();
+
+    let applied = applied.lock().unwrap();
+    assert!(
+        applied.first().unwrap().is_empty(),
+        "no device stage before the pick"
+    );
+    let last = applied.last().unwrap();
+    assert_eq!(last.len(), 1);
+    assert_eq!(last[0].fc, 300.0);
+    // scaled by device strength, never more than the profile itself
+    assert!(last[0].gain_db < 0.0 && last[0].gain_db >= -6.0);
+    assert_eq!(
+        status.lock().unwrap().headphone.as_deref(),
+        Some("Test IEM")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

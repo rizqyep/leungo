@@ -3,6 +3,18 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.1.8
+
+- New "Your headphones" card in the dashboard: search for your earphones,
+  click one, and Leungo downloads its lab measurements (AutoEq on GitHub),
+  works out the correction and applies it right away. No files or terminal
+  needed. Earphones you've used before are listed for one-click switching,
+  and "Turn off" goes back to no correction.
+- In-ear measurements are corrected toward the Harman in-ear 2019 target.
+  Models that only have crinacle's EQ files use AutoEq's own target.
+- A headphone picked in the dashboard takes priority over one set with
+  `leungo device`.
+
 ## v0.1.7
 
 - Drum attack is now on by default and has a clearer description in the

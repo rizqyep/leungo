@@ -1,8 +1,10 @@
 //! Shared domain types: config, engine traits, path helpers, and the
 //! offline analyzer used by the CLI.
 
+pub mod autoeq;
 pub mod config;
 pub mod engine;
+pub mod headphones;
 pub mod offline;
 pub mod paths;
 

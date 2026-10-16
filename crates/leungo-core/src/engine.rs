@@ -38,6 +38,9 @@ pub struct Status {
     /// `eq.per_band_punch` ("Drum attack" in the dashboard), switchable live.
     #[serde(default)]
     pub punch: bool,
+    /// Headphone profile picked in the dashboard, if any.
+    #[serde(default)]
+    pub headphone: Option<String>,
 }
 
 fn default_device_strength() -> f64 {
@@ -63,6 +66,7 @@ impl Default for Status {
             signature: leungo_eq::Signature::default(),
             device_strength: default_device_strength(),
             punch: true,
+            headphone: None,
         }
     }
 }
@@ -90,6 +94,12 @@ pub struct Engine {
     tuning_checked_s: f64,
     signature_path: Option<PathBuf>,
     signature_checked_s: f64,
+    headphone_path: Option<PathBuf>,
+    headphone_checked_s: f64,
+    /// mtime of the profile file last read; outer `None` = never looked.
+    headphone_stamp: Option<Option<std::time::SystemTime>>,
+    /// The config's own device filters, used when no profile is picked.
+    own_device_filters: Vec<leungo_eq::device::Filter>,
     state: State,
     bypassed: bool,
     collected_s: f64,
@@ -213,6 +223,7 @@ impl Engine {
         let detector = TrackDetector::new(DetectorConfig {
             gap_s: cfg.analysis.gap_s,
         });
+        let own_device_filters = cfg.eq.device_filters.clone();
         Self {
             source,
             applier,
@@ -229,6 +240,10 @@ impl Engine {
             tuning_checked_s: 0.0,
             signature_path: None,
             signature_checked_s: 0.0,
+            headphone_path: None,
+            headphone_checked_s: 0.0,
+            headphone_stamp: None,
+            own_device_filters,
             state: State::Idle,
             bypassed: false,
             collected_s: 0.0,
@@ -406,6 +421,48 @@ impl Engine {
         }
     }
 
+    /// Enables live headphone changes: the engine watches the profile file
+    /// the dashboard writes and swaps the device stage when it changes.
+    pub fn set_headphone_path(&mut self, p: PathBuf) {
+        self.headphone_path = Some(p);
+        self.headphone_checked_s = f64::NEG_INFINITY;
+        self.poll_headphone();
+    }
+
+    fn poll_headphone(&mut self) {
+        if self.now_s - self.headphone_checked_s < 1.0 {
+            return;
+        }
+        self.headphone_checked_s = self.now_s;
+        let Some(path) = self.headphone_path.as_ref() else {
+            return;
+        };
+        let stamp = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        if self.headphone_stamp == Some(stamp) {
+            return;
+        }
+        self.headphone_stamp = Some(stamp);
+        let profile = stamp.and_then(|_| crate::headphones::read_profile(path));
+        let filters = profile
+            .as_ref()
+            .map_or_else(|| self.own_device_filters.clone(), |p| p.filters.clone());
+        for c in [&mut self.cfg, &mut self.base_cfg] {
+            c.eq.device_filters = filters.clone();
+        }
+        let name = profile.map(|p| p.name);
+        tracing::info!("headphone: {}", name.as_deref().unwrap_or("none"));
+        self.status.lock().unwrap().headphone = name;
+        // song gains don't depend on the device, so just re-apply them
+        if !self.bypassed
+            && let Some(g) = self.last_applied.clone()
+            && let Err(e) =
+                self.applier
+                    .apply_eq(&crate::offline::output(&self.cfg, &g, self.solver.fs))
+        {
+            tracing::error!("apply after headphone change failed: {e:#}");
+        }
+    }
+
     fn poll_bypass(&mut self) -> anyhow::Result<()> {
         let want = self.bypass_path.exists();
         if want == self.bypassed {
@@ -447,6 +504,7 @@ impl Engine {
             }
             self.poll_tuning();
             self.poll_signature();
+            self.poll_headphone();
             self.maybe_commit_pending(&fr)?;
             match self.state {
                 State::Idle => {

@@ -79,6 +79,7 @@ pub struct GuiShared {
     /// (Linux). Empty when the user chooses devices.
     pub capture_source: String,
     pub presence: Arc<Presence>,
+    pub headphones: crate::headphones::Headphones,
 }
 
 pub struct SetupShared {
@@ -147,6 +148,7 @@ fn wait_for_setup(
         active: devices.1.to_string(),
         capture_source: String::new(),
         presence: presence.clone(),
+        headphones: crate::headphones::Headphones::new(48_000.0),
     };
     let mut last_check = std::time::Instant::now();
     while !stop.load(Ordering::Relaxed) {
@@ -263,6 +265,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
             r.sync_volume(&active, set, stop.clone());
         }
     }
+    let fs = cfg.capture.rate as f64;
     let mut engine = Engine::new(
         cfg,
         platform.source,
@@ -277,6 +280,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
     }
     engine.set_tuning_path(paths::tuning_path());
     engine.set_signature_path(paths::signature_path());
+    engine.set_headphone_path(paths::active_headphone_path());
     if let Some(rx) = platform.track_events {
         engine.set_track_events(rx);
     }
@@ -331,6 +335,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         active,
         capture_source,
         presence,
+        headphones: crate::headphones::Headphones::new(fs),
     };
 
     println!("leungo GUI: {url}  (ctrl-c to stop)");
@@ -574,6 +579,18 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
             }
             None => respond(&mut stream, 400, "text/plain", b"bad values"),
         },
+        ("POST", "/api/headphones/search") => {
+            shared.headphones.search(&query_value(query, "q"));
+            respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+        }
+        ("POST", "/api/headphones/use") => {
+            shared.headphones.pick(&query_value(query, "name"));
+            respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+        }
+        ("POST", "/api/headphones/clear") => {
+            shared.headphones.clear();
+            respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+        }
         ("POST", p) if p.starts_with("/api/tuning/") => {
             let name = &p["/api/tuning/".len()..];
             if name == "custom" || leungo_core::Preset::parse(name).is_some() {
@@ -585,6 +602,14 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
         }
         _ => respond(&mut stream, 404, "text/plain", b"not found"),
     }
+}
+
+fn query_value(query: &str, key: &str) -> String {
+    query
+        .split('&')
+        .find_map(|p| p.split_once('=').filter(|(k, _)| *k == key))
+        .map(|(_, v)| percent_decode(v))
+        .unwrap_or_default()
 }
 
 /// Builds the sound file from `bass=..&warmth=..&presence=..&air=..&device=..`.
@@ -721,6 +746,7 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "page": page_id(),
         "playingTo": shared.active,
         "mode": paths::load_ui_mode(),
+        "headphones": shared.headphones.state(),
     })
 }
 

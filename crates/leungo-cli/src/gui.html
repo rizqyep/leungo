@@ -153,6 +153,19 @@
   .loading .now, .loading .layout, .loading #setup, .loading #devices { display: none; }
   .devices select:disabled, #setup select:disabled { opacity: .7; cursor: progress; }
   footer { color: var(--faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  #hpCard[hidden] { display: none; }
+  .hpsearch { display: flex; gap: 8px; }
+  .hpsearch input { flex: 1; min-width: 0; font: inherit; color: var(--paper); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  .hpsearch input:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
+  .hpsearch button.primary { color: var(--ink); background: var(--saffron); border-color: var(--saffron); }
+  .hpactive { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hpactive b { color: var(--paper); }
+  .hpactive .ok { color: var(--ok); }
+  .hplist { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .hplist button { width: 100%; text-align: left; display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; }
+  .hplist button span { color: var(--faint); font-size: 12.5px; }
+  .hpsaved { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 </style>
 </head>
 <body class="loading mode-simple">
@@ -192,6 +205,19 @@
     <h2>Play through</h2>
     <select id="simple_out" aria-label="Play through" disabled><option>Loading devices...</option></select>
     <p class="hint" id="simpleOutNote"></p>
+  </section>
+
+  <section class="card" id="hpCard" aria-label="Your headphones">
+    <h2>Your headphones</h2>
+    <p class="hpactive" id="hpActive"></p>
+    <form class="hpsearch" id="hpForm">
+      <input id="hpQuery" type="search" placeholder="Search your earphones, e.g. KZ EDX Pro" aria-label="Search your earphones" autocomplete="off">
+      <button class="primary" type="submit">Search</button>
+    </form>
+    <p class="hint" id="hpStatus" role="status" aria-live="polite"></p>
+    <ul class="hplist" id="hpHits"></ul>
+    <div class="hpsaved" id="hpSaved"></div>
+    <p class="hint">Leungo corrects your earphones' own sound using lab measurements from AutoEq on GitHub. Searching downloads the list of names; picking one downloads only its measurements.</p>
   </section>
 
   <section class="card" id="loadingCard" role="status" aria-live="polite">Loading Leungo...</section>
@@ -540,6 +566,8 @@ function render() {
   if (d.mode && Date.now() - (state.modeTouched || 0) > 1500) applyMode(d.mode);
   renderSetup(d.setup);
   $('devices').hidden = !!d.setup;
+  $('hpCard').hidden = !!d.setup;
+  renderHeadphones(d.headphones);
   if (d.setup) { $('stateText').textContent = d.setup.blocker === 'output' ? 'Choose an output' : 'Setup needed'; $('statePill').className = 'pill bypassed'; return; }
   const bypassed = !!d.bypassed;
   const pill = $('statePill');
@@ -668,6 +696,61 @@ function drawChart() {
 window.addEventListener('resize', drawChart);
 
 // ---- poll
+function hpPost(path) { return fetch('/api/headphones/' + path, { method: 'POST' }).catch(() => {}); }
+$('hpForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = $('hpQuery').value.trim();
+  if (q) { state.hpSearched = q; hpPost('search?q=' + encodeURIComponent(q)); }
+});
+function hpButton(name, detail) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  const n = document.createElement('b'); n.textContent = name; b.append(n);
+  if (detail) { const s = document.createElement('span'); s.textContent = detail; b.append(s); }
+  b.addEventListener('click', () => { state.hpSearched = null; hpPost('use?name=' + encodeURIComponent(name)); });
+  return b;
+}
+function renderHeadphones(h) {
+  if (!h) return;
+  const a = $('hpActive');
+  const key = JSON.stringify([h.active, h.hits, h.saved]);
+  if (key !== state.hpKey) {
+    state.hpKey = key;
+    a.replaceChildren();
+    if (h.active) {
+      const ok = document.createElement('span'); ok.className = 'ok'; ok.textContent = '✓';
+      const t = document.createElement('span');
+      t.append('Tuned for ', Object.assign(document.createElement('b'), { textContent: h.active.name }));
+      const off = document.createElement('button'); off.type = 'button'; off.textContent = 'Turn off';
+      off.addEventListener('click', () => hpPost('clear'));
+      a.append(ok, t, off);
+    } else {
+      a.textContent = 'Not set. Search for your earphones so Leungo can correct their sound.';
+    }
+    const list = $('hpHits'); list.replaceChildren();
+    for (const m of h.hits) {
+      const li = document.createElement('li');
+      const n = m.sources.length;
+      li.append(hpButton(m.name, n + (n === 1 ? ' measurement' : ' measurements')));
+      list.append(li);
+    }
+    const saved = $('hpSaved'); saved.replaceChildren();
+    const others = h.saved.filter(n => !h.active || n !== h.active.name);
+    if (others.length) {
+      saved.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Saved:' }));
+      for (const n of others) saved.append(hpButton(n));
+    }
+  }
+  let msg = '';
+  if (h.busy) msg = h.busy;
+  else if (h.error) msg = h.error;
+  else if (state.hpSearched && h.query === state.hpSearched && !h.hits.length) {
+    msg = 'No measurement found for "' + h.query + '". Try a shorter name, like the model only. Leungo still tunes each song without it.';
+  }
+  $('hpStatus').textContent = msg;
+  $('hpStatus').classList.toggle('warn', !!h.error && !h.busy);
+}
+
 async function poll() {
   try {
     const r = await fetch('/api/state', { cache: 'no-store' });

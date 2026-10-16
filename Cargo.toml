@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 license = "MIT"
 
@@ -37,6 +37,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "6"
 hound = "3"
+ureq = "3"
 ctrlc = { version = "3", features = ["termination"] }
 
 [profile.release]
