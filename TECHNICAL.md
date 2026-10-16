@@ -52,23 +52,23 @@ Two decisions shape everything else:
 
 ```mermaid
 flowchart TD
-    SRC["Audio, 48 kHz stereo<br/>before the EQ"] --> FFT["Main path: FFT 2048, hop 1024<br/>Bass path: decimate x8, FFT 2048"]
+    SRC["Audio, 48 kHz stereo<br/>before the EQ"] --> FFT["Main FFT 2048, hop 1024<br/>plus a fine bass FFT"]
     FFT --> BAND["1/3-octave band powers<br/>per frame"]
-    BAND --> TRK["Robust shape: per-band median<br/>over 20 s, bias corrected"]
-    BAND --> HP["Drum/tone split (HPSS)<br/>per-band drum share"]
-    FFT --> EDGE["Codec edge"]
+    BAND --> TRK["Robust shape<br/>per-band median over 20 s"]
+    BAND --> HPS["Drum and tone split<br/>per-band drum share"]
+    FFT --> CUT["Codec cutoff"]
     PL["Player track id"] --> ENG{"New track?"}
     TRK --> ENG
-    ENG --> SHP["Remove slope, dead zone, cap,<br/>ease drum-attack bumps"]
-    HP --> SHP
-    EDGE --> SHP
+    ENG --> SHP["Remove slope, dead zone, cap<br/>ease drum-attack bumps"]
+    HPS --> SHP
+    CUT --> SHP
     SHP --> LS["Ridge least squares<br/>onto 8 peaking bands"]
-    LS --> SC["x strength x reliability"]
-    SC --> SUM(("+"))
-    SIG["Taste controls"] --> SUM
+    LS --> SC["Scale by strength<br/>and reliability"]
+    SC --> ADD["Add taste controls"]
+    SIG["Taste controls"] --> ADD
+    ADD --> PRE["Preamp<br/>minus the peak of the combined response"]
     HEAD["Headphone filters<br/>fitted from measurements"] --> PRE
-    SUM --> PRE["Preamp = minus the peak<br/>of the combined response"]
-    PRE --> APP["EasyEffects (Linux) or<br/>in-process biquads (macOS)"]
+    PRE --> APP["EasyEffects on Linux<br/>in-process biquads on macOS"]
 ```
 
 Capture always takes the signal *before* Leungo's EQ, so the analysis never
@@ -91,8 +91,8 @@ A = 10^{G/40}, \qquad \omega_0 = \frac{2\pi f_0}{f_s}, \qquad \alpha = \frac{\si
 $$
 
 $$
-H(z) = \frac{(1 + \alpha A) - 2\cos\omega_0\, z^{-1} + (1 - \alpha A)\, z^{-2}}
-            {(1 + \alpha/A) - 2\cos\omega_0\, z^{-1} + (1 - \alpha/A)\, z^{-2}}
+H(z) = \frac{(1 + \alpha A) - 2\cos\omega_0  z^{-1} + (1 - \alpha A)  z^{-2}}
+            {(1 + \alpha/A) - 2\cos\omega_0  z^{-1} + (1 - \alpha/A)  z^{-2}}
 $$
 
 Low and high shelves use the cookbook's shelf formulas with the same $A$,
@@ -103,7 +103,7 @@ The response of a chain of filters is the product of their transfer
 functions, so in decibels it's a sum:
 
 $$
-H_{\text{dB}}(f) = \sum_i 20\log_{10}\left|H_i\!\left(e^{j 2\pi f/f_s}\right)\right|
+H_{\text{dB}}(f) = \sum_i 20\log_{10}\left|H_i\left(e^{j 2\pi f/f_s}\right)\right|
 $$
 
 That sum is what the solvers fit and what the preamp checks. On Linux,
@@ -123,8 +123,8 @@ to $f_\text{hi}$ sums each bin weighted by the share of that bin lying inside
 the band:
 
 $$
-P_b = \sum_k \omega_{b,k}\,|X[k]|^2, \qquad
-\omega_{b,k} = \frac{\big|[f_k - \tfrac{\Delta f}{2},\, f_k + \tfrac{\Delta f}{2}] \cap [f_\text{lo}, f_\text{hi}]\big|}{\Delta f}
+P_b = \sum_k \omega_{b,k} |X[k]|^2, \qquad
+\omega_{b,k} = \frac{\big|[f_k - \tfrac{\Delta f}{2},  f_k + \tfrac{\Delta f}{2}] \cap [f_\text{lo}, f_\text{hi}]\big|}{\Delta f}
 $$
 
 Summing whole bins instead gave false bumps of up to 1.4 dB at 315 to 630 Hz
@@ -153,7 +153,7 @@ approximation [5] gives its median as about $k\left(1 - \tfrac{2}{9k}\right)^3$
 against a mean of $k$, so each band gets a correction of
 
 $$
-\Delta_b = -30\log_{10}\!\left(1 - \frac{2}{9k}\right) \text{ dB}
+\Delta_b = -30\log_{10}\left(1 - \frac{2}{9k}\right) \text{ dB}
 $$
 
 That's about 1.4 dB for a one-bin band and 0.03 dB for a hundred bins.
@@ -170,7 +170,7 @@ from each, and the rms difference $\sigma$ between the two shapes (after
 removing their mean offset) gives
 
 $$
-\rho = \operatorname{clamp}\!\left(1 - \frac{\sigma}{6\ \text{dB}},\ 0,\ 1\right)
+\rho = \mathrm{clamp}\left(1 - \frac{\sigma}{6~\text{dB}},~0,~1\right)
 $$
 
 $\rho = 1$ means the measurement is repeatable. It scales how much is
@@ -182,8 +182,8 @@ With $x_i = \log_2 f_i$ and $y_i$ the band levels, the slope is the median of
 all pairwise slopes, and the intercept the median of what's left [6, 7]:
 
 $$
-\hat\beta = \operatorname*{median}_{i<j}\frac{y_j - y_i}{x_j - x_i}, \qquad
-\hat\alpha = \operatorname*{median}_i\left(y_i - \hat\beta x_i\right)
+\hat\beta = \underset{i \lt j}{\mathrm{median}}\frac{y_j - y_i}{x_j - x_i}, \qquad
+\hat\alpha = \underset{i}{\mathrm{median}}\left(y_i - \hat\beta x_i\right)
 $$
 
 An ordinary least-squares line gets pulled toward a wide bass bump and then
@@ -196,7 +196,7 @@ The residual $r_i = y_i - (\hat\alpha + \hat\beta x_i)$ is passed through a
 soft threshold with dead zone $d = 2$ dB and clamped to the cap $c = 6$ dB:
 
 $$
-\tilde r_i = \operatorname{clamp}\!\Big(\operatorname{sign}(r_i)\max(|r_i| - d,\ 0),\ -c,\ c\Big)
+\tilde r_i = \mathrm{clamp}\Big(\mathrm{sign}(r_i)\max(|r_i| - d,~0),~-c,~c\Big)
 $$
 
 Small deviations are normal variation between songs and are left alone.
@@ -222,8 +222,8 @@ With **Drum attack** on, a bump (a positive residual, which would be cut) is
 eased in proportion to how drum-led it is, but only where drum attack lives:
 
 $$
-\tilde r_b \leftarrow \tilde r_b\Big(1 - \lambda\ \pi(s_b)\ z(f_b)\Big), \qquad
-\pi(s) = \operatorname{clamp}\!\left(\frac{s - 0.4}{0.35}, 0, 1\right)
+\tilde r_b \leftarrow \tilde r_b\Big(1 - \lambda~\pi(s_b)~z(f_b)\Big), \qquad
+\pi(s) = \mathrm{clamp}\left(\frac{s - 0.4}{0.35}, 0, 1\right)
 $$
 
 $\lambda = 0.5$ is `percussive_relief`. The zone weight $z(f)$ is 1 for the
@@ -242,8 +242,8 @@ at most 1.5 dB). Its mean is removed, since overall level is loudness, not
 tone, and a peaking EQ can't apply a constant shift. Then the gains $g$ solve
 
 $$
-\min_{g,\,o}\ \sum_k\Big(\sum_j a_{kj}\,g_j + o - d_k\Big)^2 + \lambda\sum_j g_j^2,
-\qquad a_{kj} = \frac{H_{j,\text{dB}}(f_k;\, g_j)}{g_j}
+\min_{g, o}~\sum_k\Big(\sum_j a_{kj} g_j + o - d_k\Big)^2 + \lambda\sum_j g_j^2,
+\qquad a_{kj} = \frac{H_{j,\text{dB}}(f_k;  g_j)}{g_j}
 $$
 
 with ridge $\lambda = 0.05$ and a free offset $o$. $a_{kj}$ is band $j$'s
@@ -254,7 +254,7 @@ the solve runs twice, linearized at the previous result, clamping each gain to
 The song correction is then scaled:
 
 $$
-g_\text{song} = s\,(0.5 + 0.5\rho)\,g
+g_\text{song} = s (0.5 + 0.5\rho) g
 $$
 
 with strength $s = 0.5$. The taste controls are added, and each band is
@@ -273,18 +273,18 @@ to 1 kHz averages 0 dB.
 RikudouGoku, and others) is resampled onto a 1/12-octave grid from 20 Hz to
 20 kHz and normalized the same way. Per point, the combined response is the
 median across sources, and the spread $\sigma$ is the scaled median absolute
-deviation $1.4826\cdot\operatorname{MAD}$ for three or more sources, or
+deviation $1.4826\cdot\mathrm{MAD}$ for three or more sources, or
 $|x_1 - x_2|/\sqrt2$ for two. Each point gets a weight
 
 $$
-w = \frac{1}{1 + (\sigma/1.5\ \text{dB})^2}
+w = \frac{1}{1 + (\sigma/1.5~\text{dB})^2}
 $$
 
 so the fit trusts the response less where the sources disagree. The 1.5 dB
 is *unverified*. With a single source, $w$ falls from 1 to 0.5 between 6 and
 10 kHz, where coupler measurements are least reliable.
 
-**Correction.** $c = w\,(T - M)$, smoothed over 3 grid points. A boost may
+**Correction.** $c = w (T - M)$, smoothed over 3 grid points. A boost may
 rise at most 3 dB above the median of its 1/3-octave neighbourhood: narrow
 dips in an in-ear measurement are mostly ear-canal resonances that EQ can't
 fill. Above 8 kHz the correction fades to 0 at 12 kHz, because treble varies
@@ -292,7 +292,7 @@ with insertion depth. The result is clamped to +6 / −12 dB.
 
 ### Fitting the headphone filters: greedy placement and Levenberg-Marquardt
 
-The fitter finds filters $\theta = \{(\text{type}_i, f_i, G_i, Q_i)\}$ and a
+The fitter finds filters $\theta = \lbrace (\text{type}_i, f_i, G_i, Q_i) \rbrace$ and a
 level offset $o$ that minimize
 
 $$
@@ -334,7 +334,7 @@ Leungo evaluates the combined response of song bands, taste controls and
 headphone filters on a 1/24-octave grid from 20 Hz to 20 kHz, and sets
 
 $$
-\text{preamp} = -\max\!\Big(0,\ \max_f H_{\text{dB}}(f)\Big)
+\text{preamp} = -\max\Big(0,~\max_f H_{\text{dB}}(f)\Big)
 $$
 
 So the EQ as a whole never adds gain at any frequency. The cost: with
