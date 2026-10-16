@@ -5,417 +5,185 @@
   </picture>
 </p>
 
-# Better sound from any music app, automatically
+# Leungo: an equalizer that tunes itself
 
 Leungo is Acehnese for "listen".
 
-Open Leungo, play music in Spotify, Apple Music or any other app, and it adjusts the
-sound for you. It listens to each song, works out whether it is bass-heavy, vocal-led,
-bright or balanced, and quietly tunes the equalizer to match. You never touch an EQ,
-and you never have to redo it when the next song comes on.
+Leungo sits between your music app and your headphones. It corrects your
+headphones toward a reference sound, then measures each song as it plays and
+evens out what is off in that mix: a boomy low end, a buried midrange, a harsh
+peak. You don't touch an EQ, and nothing needs redoing when the next song
+starts.
 
-- **Hands-off.** It re-tunes on every track change. There is nothing to configure.
-- **Four sound styles.** Natural, Warm, Bright or Punchy: pick the one you like.
-- **One switch to compare.** Turn "Better sound" off and on to hear the difference.
-- **Works with what you already use.** Any app that plays through your speakers or
-  headphones, with no plug-ins and no per-app setup.
-- **Private.** Everything runs on your computer. Nothing is uploaded and the
-  dashboard loads nothing from the internet.
+It works with Spotify, Apple Music, a browser, or anything else that plays
+sound. Everything is plain signal processing (filters, spectra and
+statistics). There is no machine learning, and your audio never leaves your
+computer.
 
-An advanced view is there if you want spectrum graphs, per-band control and tuning
-presets. It is off by default.
+<p align="center">
+  <img alt="Leungo's simple view: the playing track, four sound styles, and the headphone search with KZ EDX Pro selected" src="assets/screenshots/dashboard-simple.png" width="800">
+</p>
 
 | Platform | Status |
 |---|---|
-| macOS (Apple silicon) | Available as an app. Early release: please report problems. |
-| Linux (PipeWire or PulseAudio) | Working. Needs EasyEffects. `.deb`, `.rpm` or build from source. |
-| Windows | Planned |
+| Linux (PipeWire or PulseAudio) | Works. Uses EasyEffects to apply the EQ. `.deb`, `.rpm`, or build from source. |
+| macOS (Apple silicon) | Early. Uses the BlackHole driver. Please report problems. |
+| Windows | Not started |
+
+## What it does to the sound
+
+Three layers, applied together:
+
+1. **Your headphones.** Every model has its own sound: extra bass, a sharp
+   peak at 5 kHz, a dip somewhere. Pick your model in the dashboard and
+   Leungo downloads its lab measurements, works out the difference from a
+   reference curve (Harman in-ear 2019 with 4 dB more deep bass), and
+   corrects it with up to 10 filters.
+2. **The song.** Leungo measures the song's balance in 1/3-octave bands and corrects
+   only what stands out from the song's own overall slope. A bass-heavy track
+   stays bass-heavy; a track with a muddy 250 Hz hump gets that hump trimmed.
+   Kick drums and snare hits keep their attack.
+3. **Your taste.** Optional bass, warmth, presence and air controls on top.
+
+Corrections are small and bounded. Leungo also turns the overall level down
+by exactly as much as its largest boost, so it never clips.
+
+The advanced view shows what it's doing: the spectrum of the playing song
+(grey), the EQ it applied for that song (orange), and every control.
+
+<p align="center">
+  <img alt="Leungo's advanced view: live spectrum with the applied EQ curve, sound controls, device correction, drum attack and tuning" src="assets/screenshots/dashboard-advanced.png" width="800">
+</p>
 
 ## Get started
 
-### macOS
-
-1. Download `Leungo-<version>-macos-arm64.dmg` from the
-   [Releases page](https://github.com/rizqyep/leungo/releases) and drag **Leungo** to
-   Applications.
-2. Open it. The app is not signed with an Apple Developer ID yet, so macOS blocks the
-   first launch: right-click **Leungo**, choose **Open**, then **Open** again.
-3. If Leungo asks for the BlackHole audio driver, click **Install BlackHole 2ch**,
-   enter your password, and restart your Mac if the installer asks. Leungo carries on by
-   itself once the driver is there.
-4. Allow the **Microphone** prompt (this is how Leungo hears what your Mac is playing)
-   and, if you want track names, the **Automation** prompt for Spotify or Music.
-5. Play some music.
-
-That is the whole setup. While Leungo runs it routes your Mac's sound through itself and
-plays it to your headphones or speakers. When you close the Leungo window it quits and
-puts your sound output back exactly as it was.
-
 ### Linux
 
-**Easiest: install a package.** Download the `.deb` or `.rpm` for x86_64 from the
+Download the `.deb` or `.rpm` from the
 [Releases page](https://github.com/rizqyep/leungo/releases):
 
 ```sh
 sudo apt install ./leungo_<version>_amd64.deb        # Debian, Ubuntu, Mint
-sudo dnf install ./leungo-<version>-1.x86_64.rpm     # Fedora, RHEL and relatives
+sudo dnf install ./leungo-<version>-1.x86_64.rpm     # Fedora and relatives
 ```
 
-Both packages recommend `easyeffects`, which is what applies the equalizer. If it
-is missing, `leungo gui` shows a setup screen with the install command for your
-distribution (and `leungo setup` prints it); the dashboard continues by itself
-once EasyEffects is installed. Leungo does not install it for you, because that
-needs administrator rights.
+Then start EasyEffects, play something, and run `leungo gui`. If EasyEffects
+is missing, the dashboard shows the install command for your distribution and
+continues once it's there.
 
-To build it yourself instead you need PipeWire (with `pipewire-pulse`) or
-PulseAudio, EasyEffects 7 or 8 with the `easyeffects` command on `PATH`, a Rust
-toolchain (1.85 or newer) and a C linker.
+### macOS
 
-```sh
-git clone https://github.com/rizqyep/leungo.git
-cd leungo
-cargo build --release -p leungo-cli
-install -Dm755 target/release/leungo ~/.local/bin/leungo
+1. Download `Leungo-<version>-macos-arm64.dmg` from the
+   [Releases page](https://github.com/rizqyep/leungo/releases) and drag
+   **Leungo** to Applications.
+2. The app isn't signed with an Apple Developer ID yet. The first time,
+   right-click **Leungo**, choose **Open**, then **Open** again.
+3. If Leungo asks for BlackHole, click **Install BlackHole 2ch** and enter
+   your password.
+4. Allow the **Microphone** prompt. That's how Leungo hears what your Mac
+   plays. Allow **Automation** too if you want track names from Spotify or
+   Music.
+
+While Leungo runs, your Mac's sound goes through it to your headphones. When
+you close the window, the output goes back to how it was.
+
+### Install with an AI coding agent
+
+If you use Claude Code, Codex, Gemini CLI or a similar agent in a terminal,
+paste this:
+
+```text
+Install Leungo from https://github.com/rizqyep/leungo on this computer.
+Use the latest release from the Releases page, not the source, and pick the
+right file for my OS (.dmg on macOS, .deb or .rpm on Linux). Check the file
+against its .sha256 before installing. On Linux, make sure EasyEffects is
+installed too. Ask me before any command that needs sudo or my password.
+When it's done, start it with `leungo gui` (Linux) or open the app (macOS),
+and tell me what to click first. Follow the README's Get started section.
 ```
 
-Start EasyEffects, play something, then run `leungo gui`. The dashboard opens at
-`http://127.0.0.1:8431`.
+The agent can't approve macOS permission prompts (Microphone, Automation,
+the BlackHole installer) for you; click those yourself.
 
-## Using Leungo
+### First use
 
-**Simple view** (the default) shows what is playing, a **Better sound** switch, the
-four sound styles and where the sound goes. Choose a style and you are done.
+1. In **Your headphones**, type your model (for example "KZ EDX Pro") and
+   click it. The correction is applied straight away, mid-song.
+2. Pick a **Sound style** if you want one. Natural is the default.
+3. Flip **Better sound** off and on to compare.
 
-- **Sound style:** Natural keeps the recording as it is. Warm is fuller and smoother.
-  Bright brings out vocals and sparkle. Punchy adds bass and energy.
-- **Play through:** "Automatic" follows whatever your Mac is using, so plugging in
-  headphones just works. Pick a specific device to pin it.
-- **Better sound off:** plays the original, untouched, so you can compare.
+If your model isn't listed, it hasn't been measured by any source AutoEq
+collects. Leungo still adjusts each song; it just can't correct the
+headphones themselves yet (see the [roadmap](ROADMAP.md)).
 
-**Advanced view** (the button at the top right) adds the live spectrum, the applied EQ
-curve, per-band sound controls, tuning presets and the capture device.
+## Privacy
 
-## If something is not right
+Audio is analyzed on your computer and never sent anywhere. The only network
+use is the headphone search: Leungo downloads the list of measured models
+from the [AutoEq](https://github.com/jaakkopasanen/AutoEq) project on GitHub
+(refreshed monthly), and the measurement files of the model you pick. GitHub
+sees those requests, including the model name.
+
+## If something is wrong
 
 | What you see | What to do |
 |---|---|
-| "Waiting for music" | Start playing in your music app. If it never changes, check that the Microphone permission is allowed for Leungo in System Settings, Privacy & Security. |
-| No sound at all | Close Leungo, then run `/Applications/Leungo.app/Contents/MacOS/leungo-bin restore` in Terminal to put the output back, and reopen Leungo. |
-| macOS says the app is "damaged" | Run `xattr -dr com.apple.quarantine /Applications/Leungo.app` once in Terminal, then open it again. |
-| Volume keys | They work as usual and change the volume of your headphones or speakers. |
-| Video looks slightly out of sync | Leungo adds about 60 ms of delay. It is not noticeable for music; quit Leungo while watching video if it bothers you. |
-| Headphones unplugged | Leungo moves to another output (such as the built-in speakers) and follows your Mac when you plug a device back in. |
+| "Waiting for music" never changes (macOS) | Check that Leungo has the Microphone permission in System Settings, Privacy & Security. |
+| No sound at all (macOS) | Quit Leungo, run `/Applications/Leungo.app/Contents/MacOS/leungo-bin restore`, and reopen it. |
+| macOS says the app is "damaged" | Run `xattr -dr com.apple.quarantine /Applications/Leungo.app` once. |
+| Video slightly out of sync (macOS) | Leungo adds about 60 ms of delay. Quit it while watching video if that bothers you. |
+| It sounds thin | Raise **Bass** in the Sound card, or lower **Device correction** to keep more of your headphones' own character. |
 
-Reports are most useful with the first lines of the output from
-`/Applications/Leungo.app/Contents/MacOS/leungo-bin gui` and
-`/Applications/Leungo.app/Contents/MacOS/leungo-bin devices`.
+Bug reports help most with the song, the headphones, what sounds wrong, and
+the first lines printed by `leungo gui`.
 
----
-
-# For tinkerers
-
-Everything below is reference material: how the analysis works, the command line, the
-config file and building from source.
-
-
-## How it works
-
-Leungo listens to what is playing, measures its tonal balance, and applies a
-small, bounded 8-band EQ correction for that track, on top of an optional
-correction for your headphones. It does not push every song toward one curve:
-a song's own tilt is left alone, and only bumps and dips outside a dead zone are
-corrected.
-
-```mermaid
-flowchart LR
-    A["Audio you are playing"] --> B["Measure<br/>1/3-octave balance<br/>and how reliable it is"]
-    T["Track change<br/>from your player"] --> C
-    B --> C["Correct only what is<br/>outside the normal range"]
-    C --> D["Fit 8 EQ bands"]
-    P["Your headphone profile<br/>and sound style"] --> E
-    D --> E["Apply"]
-    E --> F["Your speakers or<br/>headphones"]
-```
-
-New tracks switch at once. In-track refinement is slow and switched in at quiet
-moments. The technical details (measurement, the solver, the state machine,
-what is verified and what is not) are in [TECHNICAL.md](TECHNICAL.md).
-
-## Device profile
-
-Run `leungo device <files>` with measurements of your headphones or IEMs. Use
-either AutoEq measurement CSVs or AutoEq `ParametricEQ.txt` files, not both in one
-run. The fitted filters are written to `eq.device_filters` in the config.
-`eq.device_strength` (default 0.6) scales how much of that correction is applied.
-The printed fit error shows how close the fit gets.
-
-With CSVs, `--target` picks the curve to correct toward. The default is Harman
-in-ear 2019, which is bundled with Leungo.
-
-Getting the CSVs: in the AutoEq repository
-(<https://github.com/jaakkopasanen/AutoEq>), open `measurements/<source>/data/<rig>/<name>.csv`.
-Use the same model from two or three sources if they exist, so one unit or coupler
-does not decide the result:
+## Command line
 
 ```sh
-leungo device super-review.csv rikudougoku.csv
-leungo device super-review.csv rikudougoku.csv --target my-target.csv
+leungo gui                 # engine + dashboard at http://127.0.0.1:8431
+leungo run                 # engine only
+leungo status              # what it's doing and the current EQ
+leungo bypass on|off       # compare with the original
+leungo sound --bass 3      # taste controls (bass, warmth, presence, air, device)
+leungo tuning balanced     # conservative, balanced, aggressive or custom
+leungo device a.csv b.csv  # fit your own measurement files
+leungo analyze song.wav    # run the analysis on a 48 kHz WAV, no playback
+leungo config-path         # where the config lives
 ```
 
-Getting ParametricEQ files: browse
-<https://github.com/jaakkopasanen/AutoEq/tree/master/results>, open the
-source, then the form factor folder (`in-ear`, `over-ear`), then your model,
-and download `<model> ParametricEQ.txt`. Then:
+The config file and every setting are described in
+[TECHNICAL.md](TECHNICAL.md#configuration).
+
+## Build from source
+
+You need Rust 1.85 or newer. On Linux also PipeWire (with `pipewire-pulse`) or
+PulseAudio, and EasyEffects 7 or 8. On macOS, the Xcode command line tools.
 
 ```sh
-leungo device ~/Downloads/*ParametricEQ.txt
-```
-
-The repository ships one target curve (Harman in-ear 2019, from AutoEq, MIT
-licensed; see `crates/leungo-eq/targets/LICENSE-AutoEq`) and no headphone
-measurements. The licensing of the underlying measurement data was not checked.
-
-
-## Usage
-
-```sh
-# daemon + browser GUI (opens http://127.0.0.1:8431)
-leungo gui
-
-# headless daemon
-leungo run
-
-# in another terminal
-leungo status          # state, archetype, confidence, current EQ
-leungo bypass on|off   # pause adaptation, restores the previous curve
-
-# import your existing manual EQ as the base curve
-leungo calibrate <preset-name-or-path>
-
-# analyze a 48 kHz WAV offline, no playback needed
-leungo analyze song.wav
-
-leungo config-path     # where the config lives
-```
-
-The GUI is a local web page served by the daemon itself (no external
-resources, nothing leaves the machine). It shows the live state, the playing
-spectrum, the applied EQ response, and has a bypass toggle. From a terminal the
-daemon keeps adapting when you close the tab; the macOS app (or `--quit-on-close`)
-quits when its window closes.
-
-Start EasyEffects first (service mode is fine). The daemon writes the preset
-`~/.local/share/easyeffects/output/leungo.json` and loads it whenever a
-new track is classified. The preset carries both the EasyEffects 7 (`equalizer`)
-and 8 (`equalizer#0`) setting keys, so one file works across versions.
-
-
-## Config
-
-`~/.config/leungo/config.toml` is created with defaults on first run.
-
-```toml
-[analysis]
-window_s = 6.0            # audio analyzed per track before classifying
-gap_s = 1.2               # silence gap that counts as a track change
-silence_threshold_db = -60.0
-minimum_change_db = 1.0   # skip refinement steps smaller than this
-defer_max_s = 10.0        # wait up to this long for a quiet moment before switching, 0 = at once
-defer_dip_db = 4.0        # a frame this far below the recent level is a quiet moment
-shape_window_s = 20.0     # seconds of recent audio the spectral shape is measured over (median across frames)
-refine_interval_s = 5.0   # seconds between slow refinement passes while a track plays, 0 = off
-refine_alpha = 0.35       # fraction of the remaining distance taken per pass
-refine_max_step_db = 1.5  # largest per-band change per pass
-
-[eq]
-frequencies = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
-q = 1.41
-clamp_db = 12.0
-strength = 0.5             # fraction of the deviation corrected, 0..1
-base_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # your manual IEM EQ
-device_curve = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # legacy fixed correction; `leungo device` sets it to zeros and writes `eq.device_filters` instead
-deadzone_db = 2.0          # deviations from the track's own tilt smaller than this are left alone
-residual_cap_db = 6.0      # largest deviation the adaptive layer will chase
-percussive_relief = 0.5   # fraction the bass/treble correction is reduced for fully percussive material, 0 = off
-
-[targets]                  # dB deltas per archetype, at eq.frequencies
-bass_heavy     = [1.5, 1.5, 0.5, 0.0, 0.0, -0.5, -1.0, -0.5]
-vocal_centric  = [0.0, 0.0, 0.3, 0.8, 0.8, 0.3, 0.0, 0.0]
-guitar_band    = [0.5, 0.5, 0.8, 0.8, 0.8, 0.3, -1.0, -0.5]
-bright_acoustic= [0.0, 0.0, 0.0, 0.0, 0.0, -0.5, -1.0, -1.0]
-neutral        = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-```
-
-Other settings:
-
-```toml
-[gui]
-port = 8431
-open = "app"        # app: its own window, browser: a tab, none: print the address
-
-[standalone]        # macOS only
-input_device = "BlackHole"
-output_device = ""  # empty follows the system; a name pins that device
-latency_ms = 60
-manage_output = true  # point the system output at the loopback device while running
-```
-
-`gui.open = "app"` uses a Chromium-family browser (Chrome, Chromium, Brave,
-Edge) in app mode when one is installed: a window with no tabs or address
-bar. It is still a browser process underneath, so it uses the browser's
-memory while open. Started from the app bundle, closing the window quits Leungo.
-From a terminal the daemon keeps running unless you pass `--quit-on-close`.
-
-Tuning tips:
-
-- If the adaptive layer fights your taste, adjust `targets`: positive values
-  let that archetype keep more energy in a region, negative values lean
-  against it. Positive bass values on `bass_heavy` mean "let EDM keep its
-  low end", not "add bass".
-- Run `calibrate` once with the preset you already use, so your IEM
-  corrections are baked into `base_curve`.
-- `strength` is the main taste knob. 0.3-0.5 keeps most of the mastering
-  intent, 1.0 flattens every track toward the target. A less repeatable
-  measurement (lower reliability) shrinks it further.
-- In-track curve changes are held until a dip in level (a rest, a breath, a
-  phrase gap) so the switch is hidden, or until `defer_max_s` passes. New
-  tracks apply immediately.
-- A new track (next or previous in the player) is always analyzed from scratch
-  and its curve is applied at once. Pausing and resuming the same track does
-  nothing.
-- While a track plays the curve is refined slowly: small steps every
-  `refine_interval_s`, only when the change is audible (`minimum_change_db`),
-  and switched in at a quiet moment (`defer_dip_db`, `defer_max_s`).
-- Capture reads `easyeffects_sink.monitor` (the signal before the EQ) when
-  EasyEffects is running, so the analysis never measures its own correction.
-- Confidence is a margin between the two closest archetypes and is usually low
-  with the built-in prototypes. Run `leungo fit` after about 30 tracks to
-  fit prototypes to your own listening. It prints the mean confidence before
-  and after. The number shows how typical a track is of its group, not whether
-  the group is right.
-
-Devices picked in the dashboard are stored in `devices.json`, and the Simple/Advanced
-choice in `ui.json`, next to `config.toml`, so the file you edit by hand is never
-rewritten.
-
-
-## Tuning presets
-
-Presets bundle eight settings: `eq.strength`, `eq.deadzone_db`, `eq.residual_cap_db`, `analysis.refine_interval_s`, `analysis.refine_alpha`, `analysis.refine_max_step_db`, `analysis.defer_max_s`, `analysis.shape_window_s`. The device filters, targets and capture settings are never changed.
-
-| preset | strength | dead zone dB | cap dB | refine every s | alpha | max step dB | defer max s | shape window s |
-|---|---|---|---|---|---|---|---|---|
-| conservative | 0.35 | 3.0 | 4.0 | 8 | 0.25 | 1.0 | 12 | 30 |
-| balanced | 0.5 | 2.0 | 6.0 | 5 | 0.35 | 1.5 | 10 | 20 |
-| aggressive | 0.8 | 1.0 | 8.0 | 2 | 0.5 | 2.5 | 6 | 10 |
-
-Choose a preset in the dashboard dropdown or run `leungo tuning conservative|balanced|aggressive|custom`. With no argument, the command prints the current preset. A running daemon applies the change within about a second and re-solves immediately. `custom` uses the values written in the config file. A `tuning = "balanced"` line at the top of the config sets the default preset.
-
-The values are starting points that have not been tuned by listening.
-
-## Sound
-
-The dashboard has a Sound card with presets (Neutral, Punch & air, Warm,
-Bright, V-shape), four controls and a device-correction slider.
-
-- `bass`: -6 to +8 dB, low shelf below about 110 Hz.
-- `warmth`: -4 to +4 dB, bump near 220 Hz.
-- `presence`: -4 to +4 dB, bump near 3 kHz.
-- `air`: -4 to +6 dB, high shelf from about 5.5 kHz. The highest of the 8
-  bands is 8 kHz, so a shelf cannot start higher.
-- Device correction: 0 to 100% (`eq.device_strength`, default 0.6). It scales
-  how much of the headphone correction is applied.
-
-The sound controls are applied on top of the correction and take effect
-within about a second. They are shifted so the signature never adds a net
-boost, so they add no extra clipping risk.
-
-`leungo sound` prints the current values. `leungo sound --bass 4 --air 3
---device 0.6` sets them. Negative values work, for example `--warmth -2`.
-
-The values are stored in the config under `[eq.signature]` as `bass_db`,
-`warmth_db`, `presence_db` and `air_db`.
-
-The dashboard tuning buttons are labelled Gentle, Balanced, Bold and Custom.
-They map to the conservative, balanced, aggressive and custom presets.
-
-## Fitting to your listening
-
-- The daemon logs descriptors of each analyzed track to `~/.local/share/leungo/tracks.jsonl`.
-- `leungo fit` needs at least 30 tracks in two or more groups.
-- It writes `~/.config/leungo/classifier.json`.
-- Restart the daemon to use it.
-
-## Architecture
-
-A small platform-independent core (analysis, EQ solver, engine) sits between a
-per-platform audio source and EQ applier, so Linux (EasyEffects) and macOS
-(in-process, BlackHole) share the same engine. The crate layout, data flow and
-diagrams are in [TECHNICAL.md](TECHNICAL.md#crates).
-
-## macOS from source
-
-```sh
-xcode-select --install                    # compiler and linker
-curl https://sh.rustup.rs -sSf | sh       # Rust 1.85 or newer
 git clone https://github.com/rizqyep/leungo.git
 cd leungo
 cargo build --release -p leungo-cli
 target/release/leungo gui
 ```
 
-`leungo setup` installs the BlackHole driver from the terminal, `leungo devices`
-lists audio devices and `leungo restore` puts the system output back after an unclean
-exit. Set `standalone.manage_output = false` to switch the output yourself.
+## Known limits
 
-On macOS leungo captures a virtual loopback device (BlackHole), equalizes in process
-and plays the result to your real output. Track information comes from polling Spotify
-and Music with AppleScript.
+- Only headphones that AutoEq has measurements for get a device correction.
+  Many true wireless models aren't measured.
+- One headphone profile is active at a time. Leungo doesn't yet switch when
+  you change outputs.
+- Most of the tuning numbers (dead zone, strengths, drum thresholds) were set
+  by listening on one setup and haven't been tested blind. That's the main
+  open work.
+- On macOS the processing adds about 60 ms of latency, and the drift
+  correction between the two audio clocks hasn't been tested over long
+  sessions on many machines.
 
-macOS limitations:
+## More
 
-- The processing adds about the configured `latency_ms` of delay.
-- BlackHole has a volume of its own. While Leungo runs, BlackHole's volume follows your
-  real output's volume, its attenuation is made up digitally, and each volume-key press
-  is copied onto the real output device. Mute is passed through as silence.
-- Only 32-bit float devices are supported, which is what CoreAudio normally offers.
-- The two devices run on separate clocks. A small controller absorbs the difference; it
-  is unit-tested against simulated drift, so occasional clicks are possible.
-- A config from an earlier build lives under `~/Library/Application Support/leungo`.
-
-
-## Known limitations
-
-- Bass is measured down to 31.5 Hz, but corrections start at 40 Hz. The
-  deepest correction comes from the 63 Hz band.
-- Track changes come from the player (MPRIS) when available, otherwise from
-  silence gaps. A player without metadata that crossfades gaplessly may not be
-  detected. Continuous mixes with 30+ second gaps between changes work; shorter
-  crossfades may skip a re-analysis (by design, to avoid false triggers from
-  notifications).
-- The classifier is rule-based on spectral signatures. It is transparent and
-  fast, but the guitar-band vs neutral boundary is fuzzy; an ML classifier is
-  a later upgrade (see roadmap).
-- WAV analysis expects 48 kHz; resample other rates first.
-
-
-## Roadmap
-
-1. Windows: WASAPI loopback capture + Equalizer APO config writer
-2. macOS: a menu-bar item and a signed, notarized app bundle
-3. ML archetype classifier (ONNX runtime, distilled model)
-4. Library pre-scan cache for instant presets on known tracks
-5. Native window front end (egui) beside the web GUI; needs GUI dev headers
-   (wayland-client, libxkbcommon, gtk3) that are not currently installed here
-6. Optional standalone Linux mode: PipeWire virtual sink with in-process DSP
-
-
-## Development
-
-```sh
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-- [TECHNICAL.md](TECHNICAL.md): how the engine, measurement and solver work, and what is not verified.
-- [CONTRIBUTING.md](CONTRIBUTING.md): setup, checks, platform-specific code, and how to report problems.
+- [TECHNICAL.md](TECHNICAL.md): how it works, with the equations and the
+  research it builds on.
+- [ROADMAP.md](ROADMAP.md): what's next, and where help is wanted.
+- [CONTRIBUTING.md](CONTRIBUTING.md): setup, checks, and how to report
+  problems.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
