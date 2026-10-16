@@ -260,7 +260,7 @@ impl Default for EqCfg {
             residual_cap_db: 6.0,
             percussive_relief: 0.5,
             per_band_punch: true,
-            device_strength: 0.6,
+            device_strength: 1.0,
             signature: leungo_eq::Signature::default(),
         }
     }

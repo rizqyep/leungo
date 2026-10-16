@@ -78,6 +78,10 @@ impl Headphones {
             .into_iter()
             .find(|p| p.name == name);
         if let Some(p) = saved {
+            let p = hp::refit(&p, &paths::headphones_dir(), self.fs)
+                .ok()
+                .flatten()
+                .unwrap_or(p);
             let mut g = self.inner.lock().unwrap();
             g.error = hp::activate(&p).err().map(|e| format!("{e:#}"));
             return;
@@ -152,6 +156,39 @@ impl Headphones {
             g.error = Some("could not start the download".into());
         }
     }
+}
+
+/// Refits the active profile once when it was made for an older target.
+/// Strength goes back to full: the new target is meant to be used whole.
+pub fn upgrade_active(fs: f64) {
+    let Some(p) = hp::read_profile(&paths::active_headphone_path()) else {
+        return;
+    };
+    match hp::refit(&p, &paths::headphones_dir(), fs) {
+        Ok(Some(new)) => {
+            if let Err(e) = hp::activate(&new).and_then(|()| full_strength()) {
+                tracing::warn!("headphone upgrade: {e:#}");
+            } else {
+                tracing::info!("{} refit for {}", new.name, new.target);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => tracing::warn!("headphone refit: {e:#}"),
+    }
+}
+
+fn full_strength() -> anyhow::Result<()> {
+    let path = paths::signature_path();
+    let mut v: serde_json::Map<String, Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    v.insert("device".into(), json!(1.0));
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p)?;
+    }
+    std::fs::write(&path, Value::Object(v).to_string())?;
+    Ok(())
 }
 
 fn profile_json(p: &Profile) -> Value {

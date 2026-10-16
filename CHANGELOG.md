@@ -3,6 +3,20 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.1.9
+
+- Richer, clearer sound out of the box. Headphone corrections now aim at
+  Harman in-ear 2019 plus 4 dB of deep bass below about 120 Hz: sub-bass
+  and kick keep their body, the 100-400 Hz range where bass turns boomy or
+  cloudy gets cleaned up, and treble peaks are smoothed.
+- Device correction now defaults to 100%. The new target is meant to be
+  used in full, so nothing needs adjusting.
+- A headphone you already picked is refit automatically from its saved
+  measurements the next time Leungo starts, and its correction is set to
+  100% once.
+- More accurate fits: the fitter no longer gives up when one filter doesn't
+  help, it moves on to the next problem spot.
+
 ## v0.1.8
 
 - New "Your headphones" card in the dashboard: search for your earphones,

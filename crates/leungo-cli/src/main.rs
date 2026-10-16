@@ -69,7 +69,7 @@ enum Cmd {
     /// ParametricEQ.txt files. Several sources are combined.
     Device {
         files: Vec<PathBuf>,
-        /// Target curve CSV (frequency,raw). Default: Harman in-ear 2019.
+        /// Target curve CSV (frequency,raw). Default: Harman in-ear 2019 + 4 dB bass.
         #[arg(long)]
         target: Option<PathBuf>,
     },
@@ -169,6 +169,7 @@ fn run() -> Result<()> {
     }
 
     let platform = platform::setup(&mut cfg, stop.clone())?;
+    headphones::upgrade_active(cfg.capture.rate as f64);
     let mut engine = Engine::new(cfg, platform.source, platform.applier, status, stop.clone());
     engine.set_tuning_path(paths::tuning_path());
     engine.set_signature_path(paths::signature_path());
@@ -430,11 +431,8 @@ fn device(files: &[PathBuf], target: Option<&Path>) -> Result<()> {
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
 
     let fitted = if csv > 0 {
-        let target_text = match target {
-            Some(t) => read(t)?,
-            None => leungo_eq::fr::HARMAN_IE_2019.to_string(),
-        };
-        fit_measurements(&texts, &target_text, fs)?
+        let target_text = target.map(read).transpose()?;
+        fit_measurements(&texts, target_text.as_deref(), fs)?
     } else {
         ensure!(
             target.is_none(),

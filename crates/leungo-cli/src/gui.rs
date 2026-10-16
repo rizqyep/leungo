@@ -267,6 +267,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         }
     }
     let fs = cfg.capture.rate as f64;
+    crate::headphones::upgrade_active(fs);
     let mut engine = Engine::new(
         cfg,
         platform.source,

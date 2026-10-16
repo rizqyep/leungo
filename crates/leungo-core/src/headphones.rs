@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime};
 
 const RESULTS_URL: &str = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/";
 const INDEX_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
-pub const HARMAN_NAME: &str = "Harman in-ear 2019";
+pub const TARGET_NAME: &str = "Harman in-ear 2019 + 4 dB bass";
 
 /// Returns the body, or `None` when the file doesn't exist (404).
 pub type Fetch<'a> = &'a dyn Fn(&str) -> Result<Option<String>>;
@@ -49,22 +49,24 @@ pub struct Fitted {
     pub worst_spread: Option<(f64, f64)>,
 }
 
-/// Fits `frequency,raw` measurements (median of all) toward `target`.
-pub fn fit_measurements(csvs: &[&str], target: &str, fs: f64) -> Result<Fitted> {
+/// Fits `frequency,raw` measurements (median of all) toward `target`, or
+/// toward `fr::rich_target` when it's `None`.
+pub fn fit_measurements(csvs: &[&str], target: Option<&str>, fs: f64) -> Result<Fitted> {
     let pts = fr::grid();
     let mut curves = Vec::new();
     for (i, c) in csvs.iter().enumerate() {
         let r = fr::parse_csv(c).map_err(|e| anyhow::anyhow!("measurement {}: {e}", i + 1))?;
         curves.push(fr::normalized_on(&r, &pts));
     }
-    let t = fr::parse_csv(target).map_err(|e| anyhow::anyhow!("target: {e}"))?;
+    let target = match target {
+        Some(t) => fr::normalized_on(
+            &fr::parse_csv(t).map_err(|e| anyhow::anyhow!("target: {e}"))?,
+            &pts,
+        ),
+        None => fr::rich_target(&pts),
+    };
     let cons = fr::consensus(&curves, &pts);
-    let corr = fr::correction(
-        &pts,
-        &fr::normalized_on(&t, &pts),
-        &cons,
-        &fr::CorrectionLimits::default(),
-    );
+    let corr = fr::correction(&pts, &target, &cons, &fr::CorrectionLimits::default());
     let worst = pts
         .iter()
         .zip(&cons.spread_db)
@@ -160,8 +162,8 @@ pub fn build(model: &Model, fetch: Fetch, fs: f64, store: &Path) -> Result<Profi
     // measurements win: they let us pick the target ourselves
     let (fitted, used, target, ext) = if !csvs.is_empty() {
         let texts: Vec<&str> = csvs.iter().map(|(_, t)| t.as_str()).collect();
-        let f = fit_measurements(&texts, fr::HARMAN_IE_2019, fs)?;
-        (f, csvs, HARMAN_NAME.to_string(), "csv")
+        let f = fit_measurements(&texts, None, fs)?;
+        (f, csvs, TARGET_NAME.to_string(), "csv")
     } else if !parametric.is_empty() {
         let texts: Vec<&str> = parametric.iter().map(|(_, t)| t.as_str()).collect();
         let f = fit_parametric(&texts, fs)?;
@@ -184,6 +186,38 @@ pub fn build(model: &Model, fetch: Fetch, fs: f64, store: &Path) -> Result<Profi
         &serde_json::to_string_pretty(&profile)?,
     )?;
     Ok(profile)
+}
+
+/// Refits a stored profile made for an older target from its saved
+/// measurements. `None` when it's current or only has ParametricEQ files.
+pub fn refit(profile: &Profile, store: &Path, fs: f64) -> Result<Option<Profile>> {
+    if profile.target == TARGET_NAME {
+        return Ok(None);
+    }
+    let dir = store.join(slug(&profile.name));
+    let mut texts = Vec::new();
+    for source in &profile.sources {
+        match std::fs::read_to_string(dir.join(format!("{}.csv", slug(source)))) {
+            Ok(t) => texts.push(t),
+            Err(_) => return Ok(None),
+        }
+    }
+    if texts.is_empty() {
+        return Ok(None);
+    }
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let f = fit_measurements(&texts, None, fs)?;
+    let new = Profile {
+        target: TARGET_NAME.to_string(),
+        filters: f.filters,
+        rms_db: f.rms_db,
+        ..profile.clone()
+    };
+    write(
+        &dir.join("profile.json"),
+        &serde_json::to_string_pretty(&new)?,
+    )?;
+    Ok(Some(new))
 }
 
 /// Makes `profile` the one the engine applies.
@@ -254,9 +288,37 @@ mod tests {
         assert_eq!(hit.name, "KZ EDX Pro");
         let p = build(hit, &http_get, 48_000.0, &dir).unwrap();
         println!("{p:#?}");
-        assert_eq!(p.target, HARMAN_NAME);
+        assert_eq!(p.target, TARGET_NAME);
         assert_eq!(p.sources.len(), 2, "crinacle has no CSV");
         assert!(p.rms_db < 0.6);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refits_old_profiles_from_their_saved_measurements() {
+        let dir = std::env::temp_dir().join(format!("leungo-refit-{}", std::process::id()));
+        write(&dir.join("test-iem/someone.csv"), fr::HARMAN_IE_2019).unwrap();
+        let old = Profile {
+            name: "Test IEM".into(),
+            sources: vec!["Someone".into()],
+            target: "Harman in-ear 2019".into(),
+            filters: Vec::new(),
+            rms_db: 0.0,
+        };
+        let new = refit(&old, &dir, 48_000.0).unwrap().unwrap();
+        assert_eq!(new.target, TARGET_NAME);
+        // a Harman-flat IEM gets the extra bass, nothing in the mids
+        let at = |f| leungo_eq::device::response_db(&new.filters, f, 48_000.0);
+        assert!(at(40.0) > 2.5, "{}", at(40.0));
+        assert!(at(1000.0).abs() < 0.5 && at(3000.0).abs() < 0.7);
+        assert_eq!(
+            read_profile(&dir.join("test-iem/profile.json")).unwrap(),
+            new
+        );
+        assert!(
+            refit(&new, &dir, 48_000.0).unwrap().is_none(),
+            "already current"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -269,7 +331,8 @@ mod tests {
 
     #[test]
     fn fits_the_bundled_target_to_almost_nothing() {
-        let f = fit_measurements(&[fr::HARMAN_IE_2019], fr::HARMAN_IE_2019, 48_000.0).unwrap();
+        let f =
+            fit_measurements(&[fr::HARMAN_IE_2019], Some(fr::HARMAN_IE_2019), 48_000.0).unwrap();
         assert!(
             f.filters.iter().all(|x| x.gain_db.abs() < 0.5),
             "{:?}",
@@ -299,7 +362,7 @@ mod tests {
         };
         let p = build(&model, &fetch, 48_000.0, &dir).unwrap();
         assert_eq!(p.sources, ["Super Review"]);
-        assert_eq!(p.target, HARMAN_NAME);
+        assert_eq!(p.target, TARGET_NAME);
         assert!(dir.join("test-iem/super-review.csv").exists());
         assert_eq!(stored(&dir), std::slice::from_ref(&p));
         assert!(urls.lock().unwrap()[0].ends_with("crinacle/in-ear/Test%20IEM/Test%20IEM.csv"));

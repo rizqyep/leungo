@@ -11,6 +11,35 @@ pub const HARMAN_IE_2019: &str = include_str!("../targets/harman-in-ear-2019.csv
 /// Spread at which a point's weight drops to 0.5. *Unverified*.
 pub const SPREAD_HALF_WEIGHT_DB: f64 = 1.5;
 
+/// Extra sub and kick on top of Harman, so bass stays full and punchy while
+/// peaks get smoothed. Below ~120 Hz only: 200-400 Hz is where boom lives.
+pub const RICH_BASS_DB: f64 = 4.0;
+
+/// Leungo's default target: Harman in-ear 2019 plus a `RICH_BASS_DB` low
+/// shelf at 105 Hz, normalized like a measurement.
+pub fn rich_target(points: &[f64]) -> Vec<f64> {
+    use crate::device::{Filter, Kind, filter_curve};
+    let harman = parse_csv(HARMAN_IE_2019).expect("bundled target parses");
+    let shelf = Filter {
+        kind: Kind::LowShelf,
+        fc: 105.0,
+        gain_db: RICH_BASS_DB,
+        q: 0.7,
+    };
+    let curve: Vec<f64> = normalized_on(&harman, points)
+        .iter()
+        .zip(filter_curve(&shelf, points, 48_000.0))
+        .map(|(h, s)| h + s)
+        .collect();
+    normalized_on(
+        &Response {
+            freqs: points.to_vec(),
+            db: curve,
+        },
+        points,
+    )
+}
+
 /// 1/12-octave points, 20 Hz to 20 kHz.
 pub fn grid() -> Vec<f64> {
     (0..)

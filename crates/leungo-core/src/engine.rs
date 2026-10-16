@@ -44,7 +44,7 @@ pub struct Status {
 }
 
 fn default_device_strength() -> f64 {
-    0.6
+    1.0
 }
 
 fn custom_tuning() -> String {
@@ -151,7 +151,7 @@ fn read_tuning(path: &std::path::Path) -> Option<Option<crate::config::Preset>> 
 }
 
 /// Parses the sound file: `{"bass":..,"warmth":..,"presence":..,"air":..,
-/// "device":..}`. Missing keys are 0 (device: 0.6); values are clamped.
+/// "device":..}`. Missing keys are 0 (device: 1.0); values are clamped.
 /// What the dashboard's Sound card writes. `punch` is `None` in files from
 /// before it existed, so the config value stays.
 struct Sound {
@@ -170,11 +170,11 @@ fn read_signature(path: &std::path::Path) -> Option<Sound> {
         air_db: f("air", 0.0),
     }
     .clamped();
-    let device = f("device", 0.6);
+    let device = f("device", 1.0);
     let device = if device.is_finite() {
         device.clamp(0.0, 1.0)
     } else {
-        0.6
+        1.0
     };
     let punch = v.get("punch").and_then(|x| x.as_f64()).map(|x| x >= 0.5);
     Some(Sound { sig, device, punch })

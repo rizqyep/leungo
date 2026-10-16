@@ -79,11 +79,14 @@ pub fn fit(points: &[f64], target: &[f64], weight: &[f64], opt: &FitOptions) -> 
     };
     p.refine(&mut state);
     let mut rms = p.rms(&state);
-    for _ in 0..opt.max_peaks {
-        if rms < opt.target_rms_db {
+    // spans where one more peak didn't help; the next try looks elsewhere
+    let mut blocked: Vec<(f64, f64)> = Vec::new();
+    let mut added = 0;
+    for _ in 0..opt.max_peaks * 3 {
+        if added == opt.max_peaks || rms < opt.target_rms_db {
             break;
         }
-        let Some(peak) = p.next_peak(&state) else {
+        let Some((peak, span)) = p.next_peak(&state, &blocked) else {
             break;
         };
         let mut next = state.clone();
@@ -91,10 +94,12 @@ pub fn fit(points: &[f64], target: &[f64], weight: &[f64], opt: &FitOptions) -> 
         p.refine(&mut next);
         let next_rms = p.rms(&next);
         if rms - next_rms < opt.min_improvement_db {
-            break;
+            blocked.push(span);
+            continue;
         }
         state = next;
         rms = next_rms;
+        added += 1;
     }
     state.filters.retain(|f| f.gain_db.abs() >= 0.1);
     let model = p.model(&state);
@@ -148,11 +153,14 @@ impl Problem<'_> {
     }
 
     /// A peak at the worst weighted error, Q from its width at half height.
-    fn next_peak(&self, s: &State) -> Option<Filter> {
+    /// The biggest remaining error outside `blocked`, as a peak plus the
+    /// span (Hz) it covers.
+    fn next_peak(&self, s: &State, blocked: &[(f64, f64)]) -> Option<(Filter, (f64, f64))> {
         let m = self.model(s);
         let e: Vec<f64> = (0..m.len()).map(|k| self.target[k] - m[k]).collect();
+        let free = |f: f64| !blocked.iter().any(|&(lo, hi)| (lo..=hi).contains(&f));
         let k = (0..e.len())
-            .filter(|&k| (PEAK_FC.0..=PEAK_FC.1).contains(&self.points[k]))
+            .filter(|&k| (PEAK_FC.0..=PEAK_FC.1).contains(&self.points[k]) && free(self.points[k]))
             .max_by(|&a, &b| {
                 (self.weight[a] * e[a].abs()).total_cmp(&(self.weight[b] * e[b].abs()))
             })?;
@@ -167,12 +175,13 @@ impl Problem<'_> {
         }
         let bw = (self.points[hi] / self.points[lo]).log2().max(0.25);
         let r = 2f64.powf(bw);
-        Some(Filter {
+        let peak = Filter {
             kind: Kind::Peak,
             fc: self.points[k],
             gain_db: e[k].clamp(-GAIN_LIMIT_DB, GAIN_LIMIT_DB),
             q: (r.sqrt() / (r - 1.0)).clamp(PEAK_Q.0, peak_max_q(self.points[k])),
-        })
+        };
+        Some((peak, (self.points[lo], self.points[hi])))
     }
 
     fn refine(&self, s: &mut State) {
