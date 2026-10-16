@@ -3,6 +3,15 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.1.10
+
+- Smooth transitions. A new song's curve, and every adjustment within a
+  song, now fades in over about 3 seconds instead of switching at once.
+  Sound slider moves glide in under a second.
+- The dashboard shows the fade: the EQ curve moves along with the sound, a
+  dashed line marks where it's heading, and the status reads "Adjusting…"
+  until it gets there.
+
 ## v0.1.9
 
 - Richer, clearer sound out of the box. Headphone corrections now aim at

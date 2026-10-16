@@ -177,6 +177,12 @@ pub struct AnalysisCfg {
     /// How far below the recent average level a frame must fall to count as
     /// a quiet moment, dB.
     pub defer_dip_db: f64,
+    /// A new curve glides in over this many seconds instead of jumping.
+    /// Slider moves use a quarter of it. 0 switches at once.
+    pub transition_s: f64,
+    /// Time between steps of a glide. Each step reloads the EasyEffects
+    /// preset on Linux, so don't go much lower.
+    pub transition_step_s: f64,
     /// Seconds of recent audio the spectral shape is measured over (median
     /// across frames, each normalized by its own level). Longer is steadier,
     /// shorter follows sections faster.
@@ -200,6 +206,8 @@ impl Default for AnalysisCfg {
             refine_max_step_db: 1.5,
             defer_max_s: 10.0,
             defer_dip_db: 4.0,
+            transition_s: 3.0,
+            transition_step_s: 0.2,
             shape_window_s: 20.0,
         }
     }

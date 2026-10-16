@@ -328,7 +328,7 @@ const STYLE_NAME = { 'bass-heavy': 'Bass-heavy', 'vocal-centric': 'Vocal-centric
   'guitar-band': 'Guitar / band', 'bright-acoustic': 'Bright acoustic', neutral: 'Neutral' };
 const KEYS = ['bass', 'warmth', 'presence', 'air'];
 const $ = (id) => document.getElementById(id);
-const state = { data: null, touched: 0, pending: null, tuningTouched: 0, bypassTouched: 0 };
+const state = { data: null, touched: 0, pending: null, tuningTouched: 0, bypassTouched: 0, shown: null };
 
 // ---- presets and sliders
 const presetsEl = $('presets');
@@ -575,6 +575,7 @@ function render() {
   const simple = state.mode === 'simple';
   $('stateText').textContent = bypassed
     ? (simple ? 'Better sound is off' : 'Bypassed')
+    : (d.state === 'active' && gliding(d)) ? 'Adjusting…'
     : ((simple ? SIMPLE_LABEL : STATE_LABEL)[d.state] || d.state);
   $('simpleStatus').textContent = bypassed ? 'Better sound is off. Switch it on to hear the difference.'
     : (np_has(d) ? (SIMPLE_LABEL[d.state] || '') : '');
@@ -673,17 +674,26 @@ function drawChart() {
     ctx.strokeStyle = 'rgba(246,247,242,.7)'; ctx.lineWidth = 1.25; ctx.stroke();
   }
 
-  // EQ curve + band handles
-  const gains = d.gains || [], freqs = d.bandFreqs || [];
-  if (gains.length && gains.length === freqs.length) {
+  // EQ curve + band handles: solid is what plays now, dashed is where it's heading
+  const target = d.gains || [], freqs = d.bandFreqs || [];
+  const gains = state.shown || target;
+  const curve = (gs) => {
     ctx.beginPath();
     const N = 220;
     for (let i = 0; i <= N; i++) {
       const f = F_LO * Math.pow(F_HI / F_LO, i / N);
-      let g = 0; for (let j = 0; j < gains.length; j++) g += peakDb(f, freqs[j], gains[j], Q);
+      let g = 0; for (let j = 0; j < gs.length; j++) g += peakDb(f, freqs[j], gs[j], Q);
       const y = Y(Math.max(-EQ, Math.min(EQ, g)));
       i ? ctx.lineTo(X(f), y) : ctx.moveTo(X(f), y);
     }
+  };
+  if (gains.length && gains.length === freqs.length) {
+    if (target.length === gains.length && maxGap(gains, target) > 0.1) {
+      curve(target);
+      ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(227,154,44,.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    curve(gains);
     ctx.strokeStyle = '#e39a2c'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.stroke();
     gains.forEach((g, j) => {
       const x = X(freqs[j]), y = Y(Math.max(-EQ, Math.min(EQ, g)));
@@ -694,6 +704,33 @@ function drawChart() {
   }
 }
 window.addEventListener('resize', drawChart);
+
+function maxGap(a, b) { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m; }
+function liveOf(d) { const l = d.liveGains || []; return l.length === (d.gains || []).length ? l : (d.gains || []); }
+function gliding(d) { return maxGap(liveOf(d), d.gains || []) > 0.1; }
+
+// the engine steps every 0.2 s and we poll every 0.25 s, so ease the drawn
+// curve toward the live one to hide the steps
+let lastFrame = 0;
+function animate(t) {
+  const d = state.data;
+  if (d) {
+    const live = liveOf(d);
+    const dt = lastFrame ? Math.min(0.1, (t - lastFrame) / 1000) : 0;
+    if (!state.shown || state.shown.length !== live.length) state.shown = live.slice();
+    const k = 1 - Math.exp(-dt / 0.15);
+    let moved = false;
+    for (let i = 0; i < live.length; i++) {
+      const step = (live[i] - state.shown[i]) * k;
+      if (Math.abs(live[i] - state.shown[i]) > 0.005) moved = true;
+      state.shown[i] += step;
+    }
+    if (moved) drawChart();
+  }
+  lastFrame = t;
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
 
 // ---- poll
 function hpPost(path) { return fetch('/api/headphones/' + path, { method: 'POST' }).catch(() => {}); }

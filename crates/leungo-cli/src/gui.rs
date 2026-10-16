@@ -741,6 +741,7 @@ fn state_json(shared: &GuiShared) -> serde_json::Value {
         "confidence": status.confidence,
         "tracks": status.tracks_analyzed,
         "gains": status.gains,
+        "liveGains": status.live_gains,
         "message": status.message,
         "spectrum": spectrum,
         "bandFreqs": BAND_FREQS.to_vec(),

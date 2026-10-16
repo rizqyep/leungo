@@ -36,6 +36,14 @@ impl EqApplier for RecordingApplier {
     }
 }
 
+/// Curves switch at once here, so each commit is one apply. The glide has
+/// its own test.
+fn cfg() -> Config {
+    let mut c = Config::default();
+    c.analysis.transition_s = 0.0;
+    c
+}
+
 const FS: f64 = 48_000.0;
 /// Seconds of audio per 4096-interleaved-sample chunk (2048 frames).
 const SECS_PER_CHUNK: f64 = 2048.0 / FS;
@@ -174,7 +182,7 @@ fn two_tracks_produce_two_applies() {
     let status = Arc::new(Mutex::new(Status::default()));
     let stop = Arc::new(AtomicBool::new(false));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -223,7 +231,7 @@ fn bypass_flag_gates_apply() {
     let status = Arc::new(Mutex::new(Status::default()));
     let stop = Arc::new(AtomicBool::new(false));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -263,7 +271,7 @@ fn similar_track_is_still_analyzed_and_applied() {
     let status = Arc::new(Mutex::new(Status::default()));
     let stop = Arc::new(AtomicBool::new(false));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -300,7 +308,7 @@ fn mpris_hint_at_splice_reanalyzes() {
     let status = Arc::new(Mutex::new(Status::default()));
     let stop = Arc::new(AtomicBool::new(false));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(HintedSource {
             chunks: events.into_iter(),
             hint_at_chunk: chunk_after(8.0),
@@ -330,7 +338,7 @@ fn mpris_hint_at_splice_reanalyzes() {
 fn run_and_collect(events: Vec<SourceEvent>) -> Vec<Vec<f64>> {
     let applied = Arc::new(Mutex::new(Vec::new()));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -378,7 +386,7 @@ fn pause_and_resume_of_same_track_keeps_preset() {
     let (tx, rx) = std::sync::mpsc::channel();
     tx.send("track-a".to_string()).unwrap();
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -404,7 +412,7 @@ fn gapless_splice_applies(defer_max_s: f64) -> usize {
     // detects the change; only continuous refinement can follow it.
     let mut events = tone_chunks(BASS_TRACK, 8.0);
     events.extend(tone_chunks(VOCAL_TRACK, 40.0));
-    let mut cfg = Config::default();
+    let mut cfg = cfg();
     cfg.analysis.defer_max_s = defer_max_s;
 
     let applied = Arc::new(Mutex::new(Vec::new()));
@@ -450,7 +458,7 @@ fn analyzed_tracks_are_logged_for_fitting() {
     events.extend(silence_chunks(1.5));
     events.extend(tone_chunks(VOCAL_TRACK, 8.0));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -484,7 +492,7 @@ fn tuning_file_switches_preset_live() {
 
     let status = Arc::new(Mutex::new(Status::default()));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: Vec::<SourceEvent>::new().into_iter(),
         }),
@@ -509,7 +517,7 @@ fn tuning_file_switches_preset_live() {
 fn final_archetype(events: Vec<SourceEvent>) -> Option<String> {
     let status = Arc::new(Mutex::new(Status::default()));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(ScriptSource {
             events: events.into_iter(),
         }),
@@ -597,7 +605,7 @@ fn sound_file_changes_the_curve_and_the_status() {
         let applied = Arc::new(Mutex::new(Vec::new()));
         let status = Arc::new(Mutex::new(Status::default()));
         let mut engine = Engine::new(
-            Config::default(),
+            cfg(),
             Box::new(ScriptSource {
                 events: tone_chunks(VOCAL_TRACK, 8.0).into_iter(),
             }),
@@ -695,7 +703,7 @@ fn picking_a_headphone_swaps_the_device_stage_mid_song() {
     let applied = Arc::new(Mutex::new(Vec::new()));
     let status = Arc::new(Mutex::new(Status::default()));
     let mut engine = Engine::new(
-        Config::default(),
+        cfg(),
         Box::new(PickMidway {
             events: tone_chunks(VOCAL_TRACK, 14.0).into_iter(),
             at: chunk_after(10.0),
@@ -725,4 +733,44 @@ fn picking_a_headphone_swaps_the_device_stage_mid_song() {
         Some("Test IEM")
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_new_curve_glides_in_instead_of_jumping() {
+    let mut c = Config::default();
+    c.analysis.transition_s = 3.0;
+    c.analysis.transition_step_s = 0.2;
+    let mut events = tone_chunks(BASS_TRACK, 8.0);
+    events.extend(silence_chunks(1.5));
+    events.extend(tone_chunks(VOCAL_TRACK, 12.0));
+
+    let applied = Arc::new(Mutex::new(Vec::new()));
+    let mut engine = Engine::new(
+        c,
+        Box::new(ScriptSource {
+            events: events.into_iter(),
+        }),
+        Box::new(RecordingApplier {
+            applied: applied.clone(),
+            bypasses: Arc::new(Mutex::new(0)),
+        }),
+        Arc::new(Mutex::new(Status::default())),
+        Arc::new(AtomicBool::new(false)),
+    );
+    engine.run().unwrap();
+
+    let applied = applied.lock().unwrap();
+    // 3 s at 0.2 s steps is about 15 steps per curve change
+    assert!(applied.len() >= 20, "only {} applies", applied.len());
+    let biggest = applied
+        .windows(2)
+        .flat_map(|w| w[0].iter().zip(&w[1]).map(|(a, b)| (a - b).abs()))
+        .fold(0.0, f64::max);
+    let total = applied[0]
+        .iter()
+        .zip(applied.last().unwrap())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f64::max);
+    assert!(total > 1.0, "curves too similar to test: {total:.2} dB");
+    assert!(biggest < 0.6, "one step jumped {biggest:.2} dB");
 }

@@ -464,8 +464,15 @@ stateDiagram-v2
    running measurement and moves each band by at most 35% of the remaining
    gap and at most 1.5 dB, only when some band differs by 1 dB or more.
 4. **Hidden switches.** A refinement waits for a quiet moment (a level dip of
-   about 4 dB below the recent average), or 10 s at most. New-track curves are
-   applied at once.
+   about 4 dB below the recent average), or 10 s at most. New-track curves
+   don't wait.
+6. **Glides.** Every curve change fades in over `transition_s = 3` s along a
+   raised cosine, $g(t) = g_0 + \tfrac{1}{2}(1 - \cos \pi p)(g_1 - g_0)$ with
+   $p = t/T$, sent as a step every 0.2 s. Sound slider moves glide over a
+   quarter of that. A change that lands mid-glide starts from the current
+   gains, so nothing snaps. On Linux each step reloads the EasyEffects
+   preset; the equalizer node stays the same across reloads, so only its
+   gains change. On macOS the chain smooths further between steps.
 5. **One label per track.** The style is decided from the first window and
    kept, so the target doesn't flip between sections.
 
@@ -528,6 +535,8 @@ refine_max_step_db = 1.5
 minimum_change_db = 1.0
 defer_max_s = 10.0         # longest wait for a quiet moment
 defer_dip_db = 4.0
+transition_s = 3.0         # fade time for a new curve, 0 = instant
+transition_step_s = 0.2
 
 [eq]
 frequencies = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]

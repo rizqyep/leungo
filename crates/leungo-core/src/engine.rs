@@ -41,6 +41,10 @@ pub struct Status {
     /// Headphone profile picked in the dashboard, if any.
     #[serde(default)]
     pub headphone: Option<String>,
+    /// Gains on the output right now. Trails `gains` while a new curve
+    /// glides in.
+    #[serde(default)]
+    pub live_gains: Vec<f64>,
 }
 
 fn default_device_strength() -> f64 {
@@ -67,6 +71,7 @@ impl Default for Status {
             device_strength: default_device_strength(),
             punch: true,
             headphone: None,
+            live_gains: Vec::new(),
         }
     }
 }
@@ -125,6 +130,32 @@ pub struct Engine {
     track_log: Option<PathBuf>,
     pending: Option<Pending>,
     rms_avg_db: Option<f64>,
+    /// Gains actually on the output right now; `last_applied` is where
+    /// they're heading.
+    live: Option<Vec<f64>>,
+    glide: Option<Glide>,
+}
+
+/// One curve change being faded in.
+struct Glide {
+    from: Vec<f64>,
+    to: Vec<f64>,
+    start_s: f64,
+    dur_s: f64,
+    next_step_s: f64,
+}
+
+impl Glide {
+    /// Raised cosine from `from` to `to`, so it eases in and out.
+    fn at(&self, now_s: f64) -> Vec<f64> {
+        let p = ((now_s - self.start_s) / self.dur_s).clamp(0.0, 1.0);
+        let w = 0.5 - 0.5 * (std::f64::consts::PI * p).cos();
+        self.from
+            .iter()
+            .zip(&self.to)
+            .map(|(a, b)| a + w * (b - a))
+            .collect()
+    }
 }
 
 /// A solved curve waiting for a quiet moment to be switched in.
@@ -268,6 +299,8 @@ impl Engine {
             track_log: None,
             pending: None,
             rms_avg_db: None,
+            live: None,
+            glide: None,
         }
     }
 
@@ -417,7 +450,8 @@ impl Engine {
             let (gains, archetype, confidence) =
                 self.solve_current(self.crest_db, self.track_class);
             self.pending = None;
-            self.commit(gains, archetype, confidence);
+            let fade = self.cfg.analysis.transition_s / 4.0;
+            self.commit_with_fade(gains, archetype, confidence, fade);
         }
     }
 
@@ -454,7 +488,7 @@ impl Engine {
         self.status.lock().unwrap().headphone = name;
         // song gains don't depend on the device, so just re-apply them
         if !self.bypassed
-            && let Some(g) = self.last_applied.clone()
+            && let Some(g) = self.live.clone()
             && let Err(e) =
                 self.applier
                     .apply_eq(&crate::offline::output(&self.cfg, &g, self.solver.fs))
@@ -475,7 +509,7 @@ impl Engine {
         }
         self.bypassed = want;
         if !want
-            && let Some(g) = self.last_applied.clone()
+            && let Some(g) = self.live.clone()
             && let Err(e) =
                 self.applier
                     .apply_eq(&crate::offline::output(&self.cfg, &g, self.solver.fs))
@@ -506,6 +540,7 @@ impl Engine {
             self.poll_signature();
             self.poll_headphone();
             self.maybe_commit_pending(&fr)?;
+            self.step_glide();
             match self.state {
                 State::Idle => {
                     if !fr.silent {
@@ -747,16 +782,32 @@ impl Engine {
     }
 
     fn commit(&mut self, gains: Vec<f64>, archetype: leungo_eq::Archetype, confidence: f64) {
-        self.last_applied = Some(gains.clone());
+        let fade = self.cfg.analysis.transition_s;
+        self.commit_with_fade(gains, archetype, confidence, fade);
+    }
 
-        if !self.bypassed
-            && let Err(e) =
-                self.applier
-                    .apply_eq(&crate::offline::output(&self.cfg, &gains, self.solver.fs))
-        {
-            tracing::error!("apply failed: {e:#}");
-            let mut s = self.status.lock().unwrap();
-            s.message = Some(format!("apply failed: {e}"));
+    fn commit_with_fade(
+        &mut self,
+        gains: Vec<f64>,
+        archetype: leungo_eq::Archetype,
+        confidence: f64,
+        fade_s: f64,
+    ) {
+        self.last_applied = Some(gains.clone());
+        // starts from what's playing now, even mid-glide
+        let from = self.live.clone().unwrap_or_else(|| vec![0.0; gains.len()]);
+        if fade_s > 0.0 && from.len() == gains.len() {
+            self.glide = Some(Glide {
+                from,
+                to: gains.clone(),
+                start_s: self.now_s,
+                dur_s: fade_s,
+                next_step_s: self.now_s,
+            });
+            self.step_glide();
+        } else {
+            self.glide = None;
+            self.push_live(gains.clone());
         }
 
         self.state = State::Active;
@@ -775,6 +826,37 @@ impl Engine {
             archetype.as_str(),
             confidence
         );
+    }
+
+    /// Moves the output one step along the current glide, if a step is due.
+    fn step_glide(&mut self) {
+        let Some(g) = self.glide.as_mut() else {
+            return;
+        };
+        if self.now_s < g.next_step_s {
+            return;
+        }
+        let done = self.now_s >= g.start_s + g.dur_s;
+        let gains = if done { g.to.clone() } else { g.at(self.now_s) };
+        g.next_step_s = self.now_s + self.cfg.analysis.transition_step_s;
+        if done {
+            self.glide = None;
+        }
+        self.push_live(gains);
+    }
+
+    fn push_live(&mut self, gains: Vec<f64>) {
+        if !self.bypassed
+            && let Err(e) =
+                self.applier
+                    .apply_eq(&crate::offline::output(&self.cfg, &gains, self.solver.fs))
+        {
+            tracing::error!("apply failed: {e:#}");
+            let mut s = self.status.lock().unwrap();
+            s.message = Some(format!("apply failed: {e}"));
+        }
+        self.status.lock().unwrap().live_gains = gains.clone();
+        self.live = Some(gains);
     }
 
     fn tracks_count(&self) -> u64 {
