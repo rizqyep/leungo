@@ -181,6 +181,7 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
             .context("install ctrl-c handler")?;
     }
 
+    cfg.standalone.input_device = crate::setup::sane_capture(&cfg.standalone.input_device);
     let devices = (
         cfg.standalone.input_device.clone(),
         cfg.standalone.output_device.clone(),

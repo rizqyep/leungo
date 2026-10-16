@@ -44,6 +44,25 @@ pub fn pick_real_output(
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+/// What to put back on exit: the output in use before leungo, never the
+/// loopback device itself.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn restore_target(
+    default: Option<&str>,
+    stored: Option<&str>,
+    real: &str,
+    loopback: &str,
+) -> String {
+    let is_loopback = |n: &str| n.to_lowercase().contains(&loopback.to_lowercase());
+    [default, stored]
+        .into_iter()
+        .flatten()
+        .find(|n| !is_loopback(n))
+        .unwrap_or(real)
+        .to_string()
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn read_original(path: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -84,14 +103,7 @@ impl Route {
         )
         .ok_or_else(|| anyhow::anyhow!("no output device to play to"))?;
 
-        let default_is_loopback = default
-            .as_deref()
-            .is_some_and(|d| d.to_lowercase().contains(&loopback.to_lowercase()));
-        let original = if default_is_loopback {
-            stored.unwrap_or_else(|| real.clone())
-        } else {
-            default.unwrap_or_else(|| real.clone())
-        };
+        let original = restore_target(default.as_deref(), stored.as_deref(), &real, loopback);
         let loopback_id = outs
             .iter()
             .find(|o| o.name.to_lowercase().contains(&loopback.to_lowercase()))
@@ -239,7 +251,19 @@ pub fn restore_saved() -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::pick_real_output;
+    use super::{pick_real_output, restore_target};
+
+    #[test]
+    fn restores_to_a_real_device_never_the_loopback() {
+        let t = |d, s, r| restore_target(d, s, r, "BlackHole");
+        assert_eq!(t(Some("AB17X"), None, "Speakers"), "AB17X");
+        assert_eq!(t(Some("BlackHole 2ch"), Some("AB17X"), "Speakers"), "AB17X");
+        assert_eq!(
+            t(Some("BlackHole 2ch"), Some("BlackHole 2ch"), "Speakers"),
+            "Speakers"
+        );
+        assert_eq!(t(None, None, "Speakers"), "Speakers");
+    }
 
     fn outs() -> Vec<String> {
         ["MacBook Air Speakers", "AB17X USB Audio", "BlackHole 2ch"]

@@ -232,3 +232,35 @@ pub fn volume_db(id: u32) -> Option<f32> {
     };
     (status == 0).then_some(v)
 }
+
+fn is_virtual(id: AudioObjectID) -> bool {
+    let addr = address(
+        kAudioDevicePropertyTransportType,
+        kAudioObjectPropertyScopeGlobal,
+    );
+    get_u32(id, &addr) == Some(kAudioDeviceTransportTypeVirtual)
+}
+
+fn has_input_streams(id: AudioObjectID) -> bool {
+    let addr = address(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeInput);
+    let mut size: u32 = 0;
+    let status = unsafe { AudioObjectGetPropertyDataSize(id, &addr, 0, ptr::null(), &mut size) };
+    status == 0 && size > 0
+}
+
+/// Virtual loopback devices that can be captured from, such as BlackHole.
+pub fn loopback_inputs() -> Vec<String> {
+    all_devices()
+        .into_iter()
+        .filter(|&id| is_virtual(id) && has_input_streams(id))
+        .filter_map(name_of)
+        .collect()
+}
+
+/// Real output devices: those with output streams that are not virtual.
+pub fn real_outputs() -> Vec<Output> {
+    outputs()
+        .into_iter()
+        .filter(|o| !is_virtual(o.id))
+        .collect()
+}

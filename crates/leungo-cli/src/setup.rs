@@ -208,20 +208,31 @@ pub fn device_lost(loopback: &str, wanted_output: &str) -> bool {
 /// Devices the dashboard offers: loopback-like outputs are left out so the
 /// engine cannot be pointed back at its own input.
 #[cfg(target_os = "macos")]
-pub fn choices(loopback: &str) -> Choices {
-    let mut out = Choices::default();
-    for d in leungo_standalone::io::list_devices().unwrap_or_default() {
-        if d.input && !out.inputs.contains(&d.name) {
-            out.inputs.push(d.name);
-        }
+pub fn choices(_loopback: &str) -> Choices {
+    Choices {
+        inputs: leungo_standalone::route::loopback_inputs(),
+        outputs: leungo_standalone::route::real_outputs()
+            .into_iter()
+            .map(|o| o.name)
+            .collect(),
     }
-    for o in leungo_standalone::route::outputs() {
-        let is_loopback = any_matches(std::iter::once(o.name.as_str()), loopback);
-        if !is_loopback && !out.outputs.contains(&o.name) {
-            out.outputs.push(o.name);
-        }
+}
+
+/// The capture device must be a virtual loopback; a real input such as a
+/// microphone or earphone falls back to the default.
+#[cfg(target_os = "macos")]
+pub fn sane_capture(configured: &str) -> String {
+    let names = leungo_standalone::route::loopback_inputs();
+    if is_known_device(&names, configured) {
+        configured.to_string()
+    } else {
+        "BlackHole".to_string()
     }
-    out
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn sane_capture(configured: &str) -> String {
+    configured.to_string()
 }
 
 #[cfg(not(target_os = "macos"))]
