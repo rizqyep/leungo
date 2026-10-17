@@ -136,6 +136,9 @@ pub struct Engine {
     glide: Option<Glide>,
 }
 
+/// Smallest glide step worth sending, dB.
+const MIN_STEP_DB: f64 = 0.1;
+
 /// One curve change being faded in.
 struct Glide {
     from: Vec<f64>,
@@ -842,7 +845,15 @@ impl Engine {
         if done {
             self.glide = None;
         }
-        self.push_live(gains);
+        // nobody hears a 0.1 dB step, so don't pay for the reload
+        let moved = self.live.as_ref().is_none_or(|l| {
+            l.iter()
+                .zip(&gains)
+                .any(|(a, b)| (a - b).abs() >= MIN_STEP_DB)
+        });
+        if moved || done {
+            self.push_live(gains);
+        }
     }
 
     fn push_live(&mut self, gains: Vec<f64>) {

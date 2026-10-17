@@ -739,7 +739,7 @@ fn picking_a_headphone_swaps_the_device_stage_mid_song() {
 fn a_new_curve_glides_in_instead_of_jumping() {
     let mut c = Config::default();
     c.analysis.transition_s = 3.0;
-    c.analysis.transition_step_s = 0.2;
+    c.analysis.transition_step_s = 0.5;
     let mut events = tone_chunks(BASS_TRACK, 8.0);
     events.extend(silence_chunks(1.5));
     events.extend(tone_chunks(VOCAL_TRACK, 12.0));
@@ -760,17 +760,24 @@ fn a_new_curve_glides_in_instead_of_jumping() {
     engine.run().unwrap();
 
     let applied = applied.lock().unwrap();
-    // 3 s at 0.2 s steps is about 15 steps per curve change
-    assert!(applied.len() >= 20, "only {} applies", applied.len());
+    // 3 s at 0.5 s steps is about 6 steps per curve change
+    assert!(applied.len() >= 8, "only {} applies", applied.len());
     let biggest = applied
         .windows(2)
         .flat_map(|w| w[0].iter().zip(&w[1]).map(|(a, b)| (a - b).abs()))
         .fold(0.0, f64::max);
-    let total = applied[0]
-        .iter()
-        .zip(applied.last().unwrap())
-        .map(|(a, b)| (a - b).abs())
+    // widest swing any band makes over the run, flat start included
+    let total = (0..applied[0].len())
+        .map(|j| {
+            let vals = std::iter::once(0.0).chain(applied.iter().map(|g| g[j]));
+            let (lo, hi) = vals.fold((f64::MAX, f64::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+            hi - lo
+        })
         .fold(0.0, f64::max);
     assert!(total > 1.0, "curves too similar to test: {total:.2} dB");
-    assert!(biggest < 0.6, "one step jumped {biggest:.2} dB");
+    // raised cosine at its steepest moves ~26% of the change per 0.5 s step
+    assert!(
+        biggest < 0.35 * total,
+        "one step jumped {biggest:.2} of {total:.2} dB"
+    );
 }

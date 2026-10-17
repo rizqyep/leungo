@@ -181,7 +181,7 @@ pub struct AnalysisCfg {
     /// Slider moves use a quarter of it. 0 switches at once.
     pub transition_s: f64,
     /// Time between steps of a glide. Each step reloads the EasyEffects
-    /// preset on Linux, so don't go much lower.
+    /// preset on Linux (about 0.1 s of CPU), so don't go much lower.
     pub transition_step_s: f64,
     /// Seconds of recent audio the spectral shape is measured over (median
     /// across frames, each normalized by its own level). Longer is steadier,
@@ -207,7 +207,7 @@ impl Default for AnalysisCfg {
             defer_max_s: 10.0,
             defer_dip_db: 4.0,
             transition_s: 3.0,
-            transition_step_s: 0.2,
+            transition_step_s: 0.5,
             shape_window_s: 20.0,
         }
     }

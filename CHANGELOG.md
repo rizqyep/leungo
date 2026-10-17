@@ -3,6 +3,15 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.1.11
+
+- Opening Leungo while it's already running now brings up its window.
+  Before, the second launch quit silently, so the app seemed not to open.
+- Much lower CPU use on Linux. The fade from v0.1.10 reloaded the
+  EasyEffects preset five times a second, which cost up to about a quarter
+  of a CPU core with Bold tuning. It now steps twice a second and skips
+  steps too small to hear.
+
 ## v0.1.10
 
 - Smooth transitions. A new song's curve, and every adjustment within a

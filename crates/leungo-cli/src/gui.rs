@@ -97,6 +97,24 @@ fn bind(port: u16) -> Result<TcpListener> {
     Ok(listener)
 }
 
+/// True when the thing on `port` is a Leungo dashboard, not some other app.
+fn leungo_answers(port: u16) -> bool {
+    use std::io::{Read, Write};
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(500)) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_secs(1)));
+    if s.write_all(b"GET /api/state HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut body = String::new();
+    let _ = s.read_to_string(&mut body);
+    body.starts_with("HTTP/1.1 200") && body.contains("\"bandFreqs\"")
+}
+
 fn serve_once(listener: &TcpListener, shared: &GuiShared) {
     match listener.accept() {
         Ok((stream, _)) => handle_conn(stream, shared),
@@ -186,9 +204,20 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         cfg.standalone.input_device.clone(),
         cfg.standalone.output_device.clone(),
     );
-    let listener = bind(port)?;
-    let presence = Arc::new(Presence::new());
     let url = format!("http://127.0.0.1:{port}");
+    let listener = match bind(port) {
+        Ok(l) => l,
+        // clicked the app again while it's already running: show that one
+        Err(_) if leungo_answers(port) => {
+            println!("leungo is already running: {url}");
+            if open_browser {
+                open_window(&url, &gui_open);
+            }
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
+    let presence = Arc::new(Presence::new());
     let mut already_open = false;
     let wait = |blocker: crate::setup::Blocker, output: &str, opened: &mut bool| -> Result<()> {
         println!(

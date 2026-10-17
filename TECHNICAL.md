@@ -468,11 +468,11 @@ stateDiagram-v2
    don't wait.
 6. **Glides.** Every curve change fades in over `transition_s = 3` s along a
    raised cosine, $g(t) = g_0 + \tfrac{1}{2}(1 - \cos \pi p)(g_1 - g_0)$ with
-   $p = t/T$, sent as a step every 0.2 s. Sound slider moves glide over a
+   $p = t/T$, sent as a step every 0.5 s (steps under 0.1 dB are skipped). Sound slider moves glide over a
    quarter of that. A change that lands mid-glide starts from the current
    gains, so nothing snaps. On Linux each step reloads the EasyEffects
-   preset; the equalizer node stays the same across reloads, so only its
-   gains change. On macOS the chain smooths further between steps.
+   preset (about 0.1 s of CPU each); the equalizer node stays the same
+   across reloads, so only its gains change. On macOS the chain smooths further between steps.
 5. **One label per track.** The style is decided from the first window and
    kept, so the target doesn't flip between sections.
 
@@ -536,7 +536,7 @@ minimum_change_db = 1.0
 defer_max_s = 10.0         # longest wait for a quiet moment
 defer_dip_db = 4.0
 transition_s = 3.0         # fade time for a new curve, 0 = instant
-transition_step_s = 0.2
+transition_step_s = 0.5
 
 [eq]
 frequencies = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
