@@ -63,9 +63,37 @@ jobs:
           name: dist-linux
           path: dist/*
 
+  windows-zip:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p leungo-cli
+      - name: Package
+        shell: pwsh
+        run: |
+          $V = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          $name = "leungo-$V-windows-x64"
+          New-Item -ItemType Directory -Force "stage/$name", dist | Out-Null
+          Copy-Item target/release/leungo.exe, assets/brand/app/leungo.ico, LICENSE, README.md "stage/$name"
+          Compress-Archive -Path "stage/$name" -DestinationPath "dist/$name.zip"
+          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii -NoNewline "dist/$name.zip.sha256"
+          Get-ChildItem dist
+      - name: Check the zip runs
+        shell: pwsh
+        run: |
+          Expand-Archive (Get-ChildItem dist/*.zip).FullName -DestinationPath check
+          & (Get-ChildItem check -Recurse -Filter leungo.exe).FullName --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: dist/*
+
   publish:
     if: github.ref_type == 'tag'
-    needs: [macos-dmg, linux-packages]
+    needs: [macos-dmg, linux-packages, windows-zip]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +110,7 @@ jobs:
           # this version's section of CHANGELOG.md, without its heading
           awk -v tag="## $GITHUB_REF_NAME" '$0 == tag {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
-          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), and Linux x86_64 packages (.deb, .rpm). See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
+          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), Linux x86_64 packages (.deb, .rpm), and an unsigned Windows x64 build (.zip; needs Equalizer APO, which Leungo offers to install). See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Leungo $GITHUB_REF_NAME" \

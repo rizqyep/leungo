@@ -28,7 +28,7 @@ computer.
 |---|---|
 | Linux (PipeWire or PulseAudio) | Works. Uses EasyEffects to apply the EQ. `.deb`, `.rpm`, or build from source. |
 | macOS (Apple silicon) | Early. Uses the BlackHole driver. Please report problems. |
-| Windows 10 (2004 or later) and 11 | Early. Uses Equalizer APO to apply the EQ. Build from source for now. Please report problems. |
+| Windows 10 (2004 or later) and 11 | Early. Uses Equalizer APO to apply the EQ. `.zip`, or build from source. Please report problems. |
 
 ## What it does to the sound
 
@@ -89,10 +89,11 @@ you close the window, the output goes back to how it was.
 
 ### Windows
 
-There is no installer yet: build `leungo.exe` from source (see
-[CONTRIBUTING.md](CONTRIBUTING.md)) or take it from the latest CI run.
-
-1. Run `leungo gui`.
+1. Download `leungo-<version>-windows-x64.zip` from the
+   [Releases page](https://github.com/rizqyep/leungo/releases), unzip it
+   somewhere you keep programs, and run `leungo gui` in that folder. There
+   is no installer yet, and the build isn't signed, so Windows SmartScreen
+   may warn the first time: choose **More info**, then **Run anyway**.
 2. If Leungo asks for Equalizer APO, click **Install Equalizer APO**. Leungo
    downloads the official installer and checks it before opening it; Windows
    asks for permission. At the end, tick the device you listen on, then
@@ -114,7 +115,7 @@ paste this:
 ```text
 Install Leungo from https://github.com/rizqyep/leungo on this computer.
 Use the latest release from the Releases page, not the source, and pick the
-right file for my OS (.dmg on macOS, .deb or .rpm on Linux). Check the file
+right file for my OS (.dmg on macOS, .deb or .rpm on Linux, .zip on Windows). Check the file
 against its .sha256 before installing. On Linux, make sure EasyEffects is
 installed too. Ask me before any command that needs sudo or my password.
 When it's done, start it with `leungo gui` (Linux) or open the app (macOS),
