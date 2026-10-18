@@ -1,9 +1,9 @@
 # Changelog
 
-Each release lists what got better. Builds are unsigned (macOS) and audio
+Each release lists what got better. Builds are unsigned (macOS, Windows) and audio
 has not been verified on all hardware; please report problems.
 
-## Unreleased
+## v0.2.0
 
 - Windows support. Leungo listens to every app except itself and applies
   its EQ through Equalizer APO. If Equalizer APO is missing, the dashboard
