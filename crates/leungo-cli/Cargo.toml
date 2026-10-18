@@ -27,12 +27,18 @@ hound = { workspace = true }
 ctrlc = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+sha2 = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 leungo-capture-pipewire = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 leungo-standalone = { workspace = true, features = ["audio-io"] }
+
+[target.'cfg(windows)'.dependencies]
+leungo-capture-wasapi = { workspace = true }
+leungo-applier-apo = { workspace = true }
+windows = { version = "0.62", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 # Linux packages, built in CI by cargo-deb and cargo-generate-rpm.
 # Paths are relative to this crate, except target/ which both tools resolve

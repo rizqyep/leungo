@@ -3,6 +3,15 @@
 Each release lists what got better. Builds are unsigned (macOS) and audio
 has not been verified on all hardware; please report problems.
 
+## Unreleased
+
+- Windows support. Leungo listens to every app except itself and applies
+  its EQ through Equalizer APO. If Equalizer APO is missing, the dashboard
+  downloads the official installer, checks it against a pinned checksum and
+  opens it, with a link to get it by hand; if it isn't on for the current
+  output, the dashboard opens its Device Selector. Track names come from the
+  Windows media controls.
+
 ## v0.1.11
 
 - Opening Leungo while it's already running now brings up its window.

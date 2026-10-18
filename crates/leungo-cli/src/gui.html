@@ -129,7 +129,8 @@
   #simpleOut option, .devices option, #setup option { color: var(--paper); background: var(--panel-2); }
   #simpleOut option:disabled, .devices option:disabled, #setup option:disabled { color: var(--faint); }
   #simpleOut select:focus-visible, .devices select:focus-visible, #setup select:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
-  .devices[hidden], #devChoose[hidden], #devFixed[hidden], #setupOutput[hidden], #setupDriverBlock[hidden], #setupEffects[hidden] { display: none; }
+  .devices[hidden], #devChoose[hidden], #devFixed[hidden], #setupOutput[hidden], #setupDriverBlock[hidden], #setupEffects[hidden], #setupApo[hidden], #setupApoDevice[hidden] { display: none; }
+  #setup a { color: var(--saffron); }
   #setupEffects code { display: block; margin: 12px 0 16px; padding: 10px 12px; background: var(--panel-2);
     border: 1px solid var(--line, #2a2a2a); border-radius: 6px; color: var(--paper); user-select: all; overflow-x: auto; }
   .hint.warn { color: var(--err); }
@@ -239,6 +240,33 @@
       <code id="setupHint"></code>
       <p class="hint">If you installed it as a Flatpak, leungo cannot drive it yet; use your distribution's package.</p>
     </div>
+    <div id="setupApo" hidden>
+      <h2>Leungo needs Equalizer APO</h2>
+      <p>On Windows, Leungo applies its equalizer through Equalizer APO, a free system-wide equalizer. It is not installed yet.</p>
+      <ol>
+        <li>Install Equalizer APO (Windows asks for permission).</li>
+        <li>At the end of the installer, tick the device you listen on, such as your headphones.</li>
+        <li>Restart Windows. Leungo continues by itself once Equalizer APO is running.</li>
+      </ol>
+      <div class="actions">
+        <button class="primary" id="setupApoInstall">Install Equalizer APO</button>
+        <span id="setupApoDetail" role="status"></span>
+      </div>
+      <p class="hint">Or download it yourself from <a id="setupApoLink" target="_blank" rel="noopener"></a></p>
+    </div>
+    <div id="setupApoDevice" hidden>
+      <h2>Turn on Equalizer APO for <span id="setupApoOutput">this device</span></h2>
+      <p>Equalizer APO is installed, but not on the device Windows plays to, so Leungo's equalizer would not be heard there.</p>
+      <ol>
+        <li>Open the Device Selector (Windows asks for permission) and tick <b id="setupApoOutputTick">it</b>.</li>
+        <li>Restart Windows. Leungo continues by itself.</li>
+      </ol>
+      <p class="hint">Or switch Windows to a device Equalizer APO is already on, in Settings, System, Sound.</p>
+      <div class="actions">
+        <button class="primary" id="setupApoSelector">Open Device Selector</button>
+        <span id="setupApoDeviceDetail" role="status"></span>
+      </div>
+    </div>
     <div id="setupDriverBlock">
     <h2>Leungo needs the <span id="setupDriver">BlackHole</span> audio driver</h2>
     <p id="setupLead">Leungo listens to your music through a virtual loopback device. It is not installed on this Mac yet.</p>
@@ -263,8 +291,8 @@
     </div>
     <div id="devFixed" hidden>
       <div class="row"><label>Capture</label><span class="fixed"><code id="fixedIn"></code></span></div>
-      <div class="row"><label>Play to</label><span class="fixed">Through EasyEffects, to your system output</span></div>
-      <p class="hint">Nothing to choose here: leungo listens to the EasyEffects sink and EasyEffects plays to the output you set in your sound settings.</p>
+      <div class="row"><label>Play to</label><span class="fixed" id="fixedOut">Through EasyEffects, to your system output</span></div>
+      <p class="hint" id="fixedNote">Nothing to choose here: leungo listens to the EasyEffects sink and EasyEffects plays to the output you set in your sound settings.</p>
     </div>
   </section>
 
@@ -393,10 +421,50 @@ $('setupInstall').addEventListener('click', () => {
   $('setupInstall').disabled = true;
   fetch('/api/setup/install', { method: 'POST' }).catch(() => {});
 });
+$('setupApoInstall').addEventListener('click', () => {
+  $('setupApoInstall').disabled = true;
+  fetch('/api/setup/install', { method: 'POST' }).catch(() => {});
+});
+$('setupApoSelector').addEventListener('click', () => {
+  $('setupApoSelector').disabled = true;
+  fetch('/api/setup/device-selector', { method: 'POST' }).catch(() => {});
+});
+function renderApoSetup(setup) {
+  const installStep = setup.blocker === 'apo';
+  $('setupApo').hidden = !installStep;
+  $('setupApoDevice').hidden = installStep;
+  const failed = setup.phase === 'failed';
+  if (installStep) {
+    $('setupApoInstall').disabled = setup.phase === 'downloading' || setup.phase === 'opened';
+    $('setupApoInstall').textContent = failed ? 'Try again' : 'Install ' + setup.installName;
+    $('setupApoDetail').textContent = setup.detail;
+    $('setupApoDetail').className = failed ? 'failed' : '';
+    $('setupApoLink').href = setup.installPage;
+    $('setupApoLink').textContent = setup.installPage;
+    return;
+  }
+  const output = setup.systemOutput || 'your output device';
+  $('setupApoOutput').textContent = output;
+  $('setupApoOutputTick').textContent = output;
+  $('setupApoSelector').disabled = setup.phase === 'opened';
+  $('setupApoSelector').textContent = failed ? 'Try again' : 'Open Device Selector';
+  $('setupApoDeviceDetail').textContent = setup.detail;
+  $('setupApoDeviceDetail').className = failed ? 'failed' : '';
+}
 function renderSetup(setup) {
   document.body.classList.toggle('setup-mode', !!setup);
   $('setup').hidden = !setup;
   if (!setup) return;
+  const apoStep = setup.blocker === 'apo' || setup.blocker === 'apo-device';
+  if (apoStep) {
+    $('setupEffects').hidden = true;
+    $('setupOutput').hidden = true;
+    $('setupDriverBlock').hidden = true;
+    renderApoSetup(setup);
+    return;
+  }
+  $('setupApo').hidden = true;
+  $('setupApoDevice').hidden = true;
   const effectsStep = setup.blocker === 'effects';
   $('setupEffects').hidden = !effectsStep;
   if (effectsStep) {
@@ -473,7 +541,13 @@ async function refreshDevices() {
   $('devFixed').hidden = !fixedPath;
   $('devTitle').textContent = fixedPath ? 'Audio path' : 'Audio devices';
   if (fixedPath) {
-    $('fixedIn').textContent = (dev.captureSource || 'system monitor') + ' (PipeWire)';
+    if (dev.platform === 'windows') {
+      $('fixedIn').textContent = 'Every app except Leungo (WASAPI)';
+      $('fixedOut').textContent = 'Through Equalizer APO, to ' + (dev.active || 'your system output');
+      $('fixedNote').textContent = 'Nothing to choose here: Equalizer APO equalizes the output you pick in Windows sound settings. Leungo listens to the music before it.';
+    } else {
+      $('fixedIn').textContent = (dev.captureSource || 'system monitor') + ' (PipeWire)';
+    }
     return;
   }
   fillSelect($('dev_in'), dev.inputs, dev.input, 'Choose an input');

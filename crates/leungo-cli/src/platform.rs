@@ -3,7 +3,8 @@
 //!
 //! Linux captures the default sink's monitor and drives EasyEffects. macOS
 //! captures a loopback device (BlackHole), equalizes in process and plays to
-//! the real output.
+//! the real output. Windows captures every app but leungo and writes the EQ
+//! for Equalizer APO.
 
 use anyhow::Result;
 use leungo_core::{Config, EqApplier, SampleSource};
@@ -93,9 +94,23 @@ pub fn setup(cfg: &mut Config, stop: Arc<AtomicBool>) -> Result<Platform> {
     })
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+pub fn setup(cfg: &mut Config, _stop: Arc<AtomicBool>) -> Result<Platform> {
+    let capture = leungo_capture_wasapi::WasapiCapture::new(&cfg.capture)?;
+    let applier = leungo_applier_apo::ApoApplier::new(&cfg.applier)?;
+    let (track_events, now_playing) = players(cfg);
+    Ok(Platform {
+        source: Box::new(capture),
+        applier: Box::new(applier),
+        track_events,
+        now_playing,
+        set_makeup_db: None,
+    })
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub fn setup(_cfg: &mut Config, _stop: Arc<AtomicBool>) -> Result<Platform> {
-    anyhow::bail!("this platform is not supported yet (Linux and macOS are)")
+    anyhow::bail!("this platform is not supported yet (Linux, macOS and Windows are)")
 }
 
 /// Lists audio devices (macOS only, where the engine opens devices itself).
@@ -116,6 +131,10 @@ pub fn print_devices() -> Result<()> {
 #[cfg(not(target_os = "macos"))]
 pub fn print_devices() -> Result<()> {
     println!("device listing applies to the standalone engine (macOS).");
-    println!("On Linux, leungo captures the default sink monitor and uses EasyEffects.");
+    if cfg!(windows) {
+        println!("On Windows, leungo listens to every app and Equalizer APO applies the EQ.");
+    } else {
+        println!("On Linux, leungo captures the default sink monitor and uses EasyEffects.");
+    }
     Ok(())
 }
