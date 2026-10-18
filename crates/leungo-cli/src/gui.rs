@@ -90,9 +90,25 @@ pub struct SetupShared {
     pub hint: String,
 }
 
+/// Set on the copy `restart_soon` starts, which has to wait for the old
+/// process to let go of the port.
+const RESTARTED_ENV: &str = "LEUNGO_RESTARTED";
+
 fn bind(port: u16) -> Result<TcpListener> {
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .with_context(|| format!("bind port {port} (in use? try --port)"))?;
+    let restarted = std::env::var_os(RESTARTED_ENV).is_some();
+    let mut attempt = 0;
+    let listener = loop {
+        match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(l) => break l,
+            Err(_) if restarted && attempt < 50 => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("bind port {port} (in use? try --port)"));
+            }
+        }
+    };
     listener.set_nonblocking(true)?;
     Ok(listener)
 }
@@ -272,7 +288,11 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
     }
 
     let managed = cfg!(target_os = "macos") && cfg.standalone.manage_output;
-    let mut active = devices.1.clone();
+    let mut active = if cfg!(windows) {
+        crate::setup::system_output()
+    } else {
+        devices.1.clone()
+    };
     let mut route = None;
     if managed {
         let (r, real) = crate::routing::Route::engage(&devices.0, &devices.1)?;
@@ -384,9 +404,9 @@ pub fn run_gui(cfg: Config, port: u16, open_browser: bool, quit_on_close: bool) 
         if last_health.elapsed() >= Duration::from_secs(2) {
             last_health = std::time::Instant::now();
             let lost = crate::setup::device_lost(&shared.devices.0, &shared.active);
-            let moved = managed
-                && shared.devices.1.is_empty()
-                && crate::setup::default_moved(&shared.devices.0, &shared.active);
+            let follows_default = cfg!(windows) || (managed && shared.devices.1.is_empty());
+            let moved =
+                follows_default && crate::setup::default_moved(&shared.devices.0, &shared.active);
             if lost || moved {
                 restart_soon();
             }
@@ -414,7 +434,7 @@ fn respond(stream: &mut TcpStream, code: u16, ctype: &str, body: &[u8]) {
 }
 
 /// Chromium-family browsers that support `--app=URL`, in order of preference.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const APP_BROWSERS: [&str; 6] = [
     "google-chrome-stable",
     "google-chrome",
@@ -424,16 +444,35 @@ const APP_BROWSERS: [&str; 6] = [
     "microsoft-edge",
 ];
 
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn pick_app_browser(exists: impl Fn(&str) -> bool) -> Option<&'static str> {
     APP_BROWSERS.iter().copied().find(|b| exists(b))
 }
 
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn on_path(name: &str) -> bool {
     std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()))
         .unwrap_or(false)
+}
+
+/// Where Chrome, Brave and Edge install themselves on Windows, in order of
+/// preference. Edge comes with Windows, so one is nearly always there.
+#[cfg(windows)]
+fn windows_app_browser() -> Option<PathBuf> {
+    let roots = ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    [
+        "Google\\Chrome\\Application\\chrome.exe",
+        "BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+        "Microsoft\\Edge\\Application\\msedge.exe",
+    ]
+    .into_iter()
+    .flat_map(|exe| roots.iter().map(move |r| r.join(exe)))
+    .find(|p| p.is_file())
 }
 
 fn spawn_quiet(cmd: &mut std::process::Command) -> bool {
@@ -465,12 +504,22 @@ fn open_window(url: &str, mode: &str) {
                 return;
             }
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(windows)]
+        if let Some(bin) = windows_app_browser()
+            && spawn_quiet(std::process::Command::new(bin).arg(format!("--app={url}")))
+        {
+            return;
+        }
+        #[cfg(target_os = "linux")]
         if let Some(bin) = pick_app_browser(on_path)
             && spawn_quiet(std::process::Command::new(bin).arg(format!("--app={url}")))
         {
             return;
         }
+    }
+    #[cfg(windows)]
+    if crate::win::shell_open(std::ffi::OsStr::new(url), "open").is_ok() {
+        return;
     }
     let opener = if cfg!(target_os = "macos") {
         "open"
@@ -531,9 +580,10 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
                 "input": shared.devices.0,
                 "output": shared.devices.1,
                 "active": shared.active,
-                // Linux has nothing to choose: the source is the EasyEffects
-                // monitor and playback goes wherever EasyEffects sends it.
+                // Linux and Windows have nothing to choose: leungo listens
+                // to the system mix and the EQ runs on the system output.
                 "selectable": cfg!(target_os = "macos"),
+                "platform": std::env::consts::OS,
                 "captureSource": shared.capture_source,
             });
             respond(
@@ -585,6 +635,22 @@ fn handle_conn(mut stream: TcpStream, shared: &GuiShared) {
         ("POST", "/api/setup/install") => match &shared.setup {
             Some(setup) => {
                 start_install(setup);
+                respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
+            }
+            None => respond(&mut stream, 404, "text/plain", b"not found"),
+        },
+        ("POST", "/api/setup/device-selector") => match &shared.setup {
+            Some(setup) => {
+                let report = match crate::setup::open_device_selector() {
+                    Ok(()) => (
+                        crate::setup::Phase::InstallerOpened,
+                        "Tick the device you listen on, then restart Windows.".to_string(),
+                    ),
+                    Err(e) => (crate::setup::Phase::Failed, format!("{e:#}")),
+                };
+                if let Ok(mut cur) = setup.install.lock() {
+                    (cur.phase, cur.detail) = report;
+                }
                 respond(&mut stream, 200, "application/json", b"{\"ok\":true}");
             }
             None => respond(&mut stream, 404, "text/plain", b"not found"),
@@ -699,9 +765,19 @@ fn restart_soon() {
         if !args.iter().any(|a| a == "--no-open") {
             args.push("--no-open".into());
         }
-        use std::os::unix::process::CommandExt;
-        let err = std::process::Command::new(exe).args(args).exec();
-        tracing::warn!("restart failed: {err}");
+        let mut cmd = std::process::Command::new(exe);
+        cmd.args(args);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let err = cmd.exec();
+            tracing::warn!("restart failed: {err}");
+        }
+        #[cfg(windows)]
+        match cmd.env(RESTARTED_ENV, "1").spawn() {
+            Ok(_) => std::process::exit(0),
+            Err(err) => tracing::warn!("restart failed: {err}"),
+        }
     });
 }
 
@@ -736,7 +812,10 @@ fn setup_json(setup: &SetupShared) -> serde_json::Value {
     json!({
         "driver": setup.driver,
         "blocker": setup.blocker.as_str(),
-        "canInstall": crate::setup::is_blackhole(&setup.driver),
+        "canInstall": setup.blocker.can_install(&setup.driver),
+        "installName": crate::setup::INSTALLER.name,
+        "installPage": crate::setup::INSTALLER.page,
+        "systemOutput": crate::setup::system_output(),
         "hint": setup.hint,
         "phase": cur.phase.as_str(),
         "detail": cur.detail,

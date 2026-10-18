@@ -9,6 +9,8 @@ mod headphones;
 mod platform;
 mod routing;
 mod setup;
+#[cfg(windows)]
+mod win;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -27,7 +29,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run the daemon: capture system audio, analyze per track, retune EasyEffects.
+    /// Run the daemon: capture system audio, analyze per track, retune the EQ.
     Run,
     /// Run the daemon with the browser GUI at http://127.0.0.1:<port>.
     Gui {
@@ -42,7 +44,7 @@ enum Cmd {
     },
     /// Print the daemon status.
     Status,
-    /// Watch MPRIS players and print track-change signatures (diagnostic).
+    /// Watch media players and print track-change signatures (diagnostic).
     MonitorMpris,
     /// Show or set the tuning preset (conservative | balanced | aggressive | custom).
     Tuning { name: Option<String> },
@@ -81,7 +83,8 @@ enum Cmd {
     Devices,
     /// Put the system output back after an unclean exit (macOS).
     Restore,
-    /// Check the audio prerequisites (EasyEffects on Linux, BlackHole on macOS) and install the BlackHole driver.
+    /// Check the audio prerequisites (EasyEffects on Linux, BlackHole on macOS,
+    /// Equalizer APO on Windows) and install BlackHole or Equalizer APO.
     Setup,
     /// Print the config file path.
     ConfigPath,
@@ -190,7 +193,7 @@ fn run() -> Result<()> {
 
 fn monitor_mpris() -> Result<()> {
     let rx = leungo_players::spawn()?;
-    println!("watching MPRIS players for track changes; ctrl-c to stop");
+    println!("watching media players for track changes; ctrl-c to stop");
     for id in rx {
         println!("track changed: {id}");
     }
@@ -215,6 +218,23 @@ fn setup_cmd() -> Result<()> {
         } else {
             println!("EasyEffects ({}): found.", cfg.applier.command);
             println!("Nothing else to set up: leungo captures the PipeWire monitor directly.");
+        }
+    }
+    #[cfg(windows)]
+    {
+        use setup::Blocker;
+        let output = setup::system_output();
+        match setup::blocker("", "") {
+            None => println!("Equalizer APO: installed and on for {output}."),
+            Some(Blocker::Apo) => {
+                setup::install_driver(&|_, detail| println!("{detail}"))?;
+                println!("After restarting, run `leungo setup` again to confirm.");
+            }
+            Some(_) => {
+                println!("Equalizer APO is installed but not on for {output}.");
+                println!("Opening its Device Selector: tick {output}, then restart Windows.");
+                setup::open_device_selector()?;
+            }
         }
     }
     if !cfg!(target_os = "macos") {

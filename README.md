@@ -28,7 +28,7 @@ computer.
 |---|---|
 | Linux (PipeWire or PulseAudio) | Works. Uses EasyEffects to apply the EQ. `.deb`, `.rpm`, or build from source. |
 | macOS (Apple silicon) | Early. Uses the BlackHole driver. Please report problems. |
-| Windows | Not started |
+| Windows 10 (2004 or later) and 11 | Early. Uses Equalizer APO to apply the EQ. Build from source for now. Please report problems. |
 
 ## What it does to the sound
 
@@ -87,6 +87,25 @@ continues once it's there.
 While Leungo runs, your Mac's sound goes through it to your headphones. When
 you close the window, the output goes back to how it was.
 
+### Windows
+
+There is no installer yet: build `leungo.exe` from source (see
+[CONTRIBUTING.md](CONTRIBUTING.md)) or take it from the latest CI run.
+
+1. Run `leungo gui`.
+2. If Leungo asks for Equalizer APO, click **Install Equalizer APO**. Leungo
+   downloads the official installer and checks it before opening it; Windows
+   asks for permission. At the end, tick the device you listen on, then
+   restart Windows.
+3. If Equalizer APO isn't on for the device Windows plays to, click **Open
+   Device Selector**, tick it, and restart Windows.
+
+Leungo listens to every app except itself and writes its EQ to
+`leungo.txt` in Equalizer APO's config folder. The first time, it replaces
+the demo `config.txt` the Equalizer APO installer leaves behind (saved as
+`config.txt.before-leungo`); a `config.txt` you wrote yourself is kept, with
+one `Include: leungo.txt` line added.
+
 ### Install with an AI coding agent
 
 If you use Claude Code, Codex, Gemini CLI or a similar agent in a terminal,
@@ -132,6 +151,8 @@ sees those requests, including the model name.
 | No sound at all (macOS) | Quit Leungo, run `/Applications/Leungo.app/Contents/MacOS/leungo-bin restore`, and reopen it. |
 | macOS says the app is "damaged" | Run `xattr -dr com.apple.quarantine /Applications/Leungo.app` once. |
 | Video slightly out of sync (macOS) | Leungo adds about 60 ms of delay. Quit it while watching video if that bothers you. |
+| Nothing changes in the sound (Windows) | Equalizer APO only runs on the devices ticked in its Device Selector, and only after a restart. Run `leungo setup` to check the current output. |
+| No track names (Windows) | Leungo reads the media controls Windows shows next to the volume flyout. The Spotify desktop app only appears there with "Show desktop overlay when using media keys" on. |
 | It sounds thin | Raise **Bass** in the Sound card, or lower **Device correction** to keep more of your headphones' own character. |
 
 Bug reports help most with the song, the headphones, what sounds wrong, and

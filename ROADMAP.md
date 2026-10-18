@@ -71,7 +71,8 @@ code works is in [TECHNICAL.md](TECHNICAL.md).
 
 1. **macOS:** signed and notarized app, a menu bar item, and testing on more
    Macs and DACs.
-2. **Windows:** WASAPI loopback capture and an Equalizer APO writer.
+2. **Windows:** an installer and signed builds, starting without a
+   console window, and testing on more devices.
 3. **CPU:** batch tiny capture packets and compute the drum split less often
    (currently about 1.3% of one core on Linux).
 

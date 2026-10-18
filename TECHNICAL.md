@@ -68,7 +68,7 @@ flowchart TD
     SIG["Taste controls"] --> ADD
     ADD --> PRE["Preamp<br/>minus the peak of the combined response"]
     HEAD["Headphone filters<br/>fitted from measurements"] --> PRE
-    PRE --> APP["EasyEffects on Linux<br/>in-process biquads on macOS"]
+    PRE --> APP["EasyEffects on Linux<br/>in-process biquads on macOS<br/>Equalizer APO on Windows"]
 ```
 
 Capture always takes the signal *before* Leungo's EQ, so the analysis never
@@ -515,6 +515,24 @@ biquads, with smoothed gain changes) and plays to the real output.
 - **Restore:** the original output is restored on exit, and never restored
   to the loopback itself.
 
+### Windows
+
+- **Capture:** WASAPI process loopback in exclude mode: every process but
+  Leungo, mixed by Windows before the endpoint effects. Equalizer APO is one
+  of those effects, so this is the signal before the EQ. Endpoint loopback
+  is not: with a -20 dB cut at 1 kHz in Equalizer APO, endpoint loopback
+  measured the cut (about -14 dB) and process loopback did not. Process
+  loopback needs Windows 10 2004 or later.
+- **Apply:** Leungo writes `leungo.txt` (preamp, the 8 song bands as `PK`,
+  then the headphone filters as `PK`, `LSC` and `HSC`) to the config folder
+  named in `HKLM\SOFTWARE\EqualizerAPO`, and makes `config.txt` include it.
+  Equalizer APO reloads on every change. It briefly locks its files while
+  reloading, so writes retry for up to half a second.
+- **Setup:** Equalizer APO counts as installed when its registry entry and
+  `EqualizerAPO.dll` exist, and as on for a device when its CLSID is among
+  that endpoint's `FxProperties` in the registry.
+- **Track ids:** the system media controls (`GlobalSystemMediaTransportControlsSessionManager`), polled once a second.
+
 ## Configuration
 
 `~/.config/leungo/config.toml` (macOS: `~/Library/Application Support/leungo/config.toml`)
@@ -593,6 +611,7 @@ by blind listening.
 | Runtime state | `~/.cache/leungo/`: `status.json`, `bypass`, `tuning`, `signature.json`, `autoeq-index.md` |
 | Track log | `~/.local/share/leungo/tracks.jsonl` |
 | EasyEffects preset | `~/.local/share/easyeffects/output/leungo.json` |
+| Equalizer APO file (Windows) | `leungo.txt` in Equalizer APO's config folder, usually `C:\Program Files\EqualizerAPO\config` |
 
 ### Dashboard API
 
@@ -604,13 +623,14 @@ local process can use it).
 |---|---|
 | `GET /` | the page |
 | `GET /api/state` | status, spectrum, now playing, gains, setup state |
-| `GET`, `POST /api/devices` | list and choose capture and output (macOS) |
+| `GET`, `POST /api/devices` | list and choose capture and output (macOS); the fixed audio path elsewhere |
 | `POST /api/bypass/on`, `/off` | Better sound off or on |
 | `POST /api/tuning/<preset>` | tuning preset |
 | `POST /api/sound` | taste controls, device strength, drum attack |
 | `POST /api/headphones/search`, `/use`, `/clear` | find, apply or turn off a headphone profile (downloads run in a background job) |
 | `POST /api/mode/simple`, `/advanced` | dashboard mode |
-| `POST /api/setup/install` | macOS: download and open the BlackHole installer |
+| `POST /api/setup/install` | download, verify and open the BlackHole (macOS) or Equalizer APO (Windows) installer |
+| `POST /api/setup/device-selector` | Windows: open Equalizer APO's Device Selector |
 | `POST /api/bye` | the window closed |
 
 ### Crates
@@ -622,8 +642,10 @@ local process can use it).
 | `leungo-analysis` | FFT, bass path, robust shape, HPSS, codec edge, classifier |
 | `leungo-core` | Config, engine, headphone download and storage, offline analysis, paths |
 | `leungo-capture-pipewire` | Linux capture |
+| `leungo-capture-wasapi` | Windows capture (process loopback) |
 | `leungo-applier-ee` | EasyEffects preset writer |
-| `leungo-players` | Track ids: MPRIS (Linux), AppleScript (macOS) |
+| `leungo-applier-apo` | Equalizer APO config writer, installation and device checks |
+| `leungo-players` | Track ids: MPRIS (Linux), AppleScript (macOS), system media controls (Windows) |
 | `leungo-standalone` | macOS audio: loopback capture, resampling, drift control, filter chain |
 | `leungo-cli` | The `leungo` binary, dashboard, setup flows |
 
@@ -648,8 +670,11 @@ behind the `audio-io` feature, so the workspace builds and tests everywhere.
 - Not tested: any real music corpus (none can be shipped). The values most
   tied to real music (dead zone, strength, drum thresholds) are tuned by ear
   on one setup only.
-- CI builds, lints and tests on Linux and on Apple silicon macOS. The macOS
-  audio code is compiled there, not run against a device.
+- Measured on Windows: process loopback is before Equalizer APO and
+  endpoint loopback after it (see Windows above), and a cut written to
+  `leungo.txt` is heard on the output.
+- CI builds, lints and tests on Linux, Apple silicon macOS and Windows. The
+  macOS and Windows audio code is compiled there, not run against a device.
 
 ## Known gaps
 

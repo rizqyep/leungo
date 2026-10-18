@@ -1,0 +1,12 @@
+[package]
+name = "leungo-capture-wasapi"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-core = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.26"

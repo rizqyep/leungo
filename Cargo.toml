@@ -5,7 +5,9 @@ members = [
     "crates/leungo-eq",
     "crates/leungo-analysis",
     "crates/leungo-capture-pipewire",
+    "crates/leungo-capture-wasapi",
     "crates/leungo-applier-ee",
+    "crates/leungo-applier-apo",
     "crates/leungo-players",
     "crates/leungo-standalone",
     "crates/leungo-core",
@@ -22,7 +24,9 @@ leungo-dsp = { path = "crates/leungo-dsp" }
 leungo-eq = { path = "crates/leungo-eq" }
 leungo-analysis = { path = "crates/leungo-analysis" }
 leungo-capture-pipewire = { path = "crates/leungo-capture-pipewire" }
+leungo-capture-wasapi = { path = "crates/leungo-capture-wasapi" }
 leungo-applier-ee = { path = "crates/leungo-applier-ee" }
+leungo-applier-apo = { path = "crates/leungo-applier-apo" }
 leungo-players = { path = "crates/leungo-players" }
 leungo-standalone = { path = "crates/leungo-standalone" }
 leungo-core = { path = "crates/leungo-core" }

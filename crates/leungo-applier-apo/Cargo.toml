@@ -1,0 +1,13 @@
+[package]
+name = "leungo-applier-apo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leungo-core = { workspace = true }
+leungo-eq = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"

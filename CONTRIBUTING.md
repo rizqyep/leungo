@@ -24,6 +24,7 @@ You need Rust 1.85 or newer (the workspace uses edition 2024) and a C linker.
 |---|---|
 | Linux | PipeWire with `pipewire-pulse` (or PulseAudio), and the PulseAudio client headers: `libpulse-dev` (Debian, Ubuntu) or `pulseaudio-libs-devel` (Fedora). EasyEffects 7 or 8 to run the app end to end. |
 | macOS (Apple silicon) | Xcode command line tools. BlackHole 2ch to run it end to end. |
+| Windows 10 2004 or later | The MSVC build tools (Visual Studio Build Tools 2017 or later with the C++ workload). Equalizer APO to run it end to end. |
 
 ```sh
 git clone https://github.com/rizqyep/leungo.git
@@ -33,7 +34,7 @@ cargo build --release -p leungo-cli
 
 ## The checks CI runs
 
-Run these before you push. They are what the Linux and macOS jobs run.
+Run these before you push. They are what the Linux, macOS and Windows jobs run.
 
 ```sh
 cargo fmt --all -- --check

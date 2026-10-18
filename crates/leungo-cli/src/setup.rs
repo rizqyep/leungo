@@ -1,13 +1,57 @@
-//! First-run check for the loopback driver the macOS engine captures from,
-//! and a guided install of BlackHole 2ch.
+//! First-run checks for what each platform needs besides leungo, and a
+//! guided install of the one piece it can fetch: the BlackHole 2ch loopback
+//! driver on macOS, Equalizer APO on Windows.
 
 use anyhow::{Context, Result, bail, ensure};
 use std::path::Path;
 use std::process::Command;
 
-const PKG_URL: &str = "https://existential.audio/downloads/BlackHole2ch-0.7.1.pkg";
-const PKG_SHA256: &str = "57b540f27a3e29c37e310e01bee0fdfab76733087e47f997ef9dccf851400dcf";
-const DOWNLOAD_PAGE: &str = "https://existential.audio/blackhole/";
+/// A pinned third-party installer. The checksum is of the exact file, so a
+/// changed or tampered download is refused.
+pub struct Installer {
+    pub name: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+    file_name: &'static str,
+    /// Where to get it by hand when the download fails.
+    pub page: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+pub const INSTALLER: Installer = Installer {
+    name: "BlackHole 2ch",
+    url: "https://existential.audio/downloads/BlackHole2ch-0.7.1.pkg",
+    sha256: "57b540f27a3e29c37e310e01bee0fdfab76733087e47f997ef9dccf851400dcf",
+    file_name: "BlackHole2ch.pkg",
+    page: "https://existential.audio/blackhole/",
+};
+
+#[cfg(all(windows, not(target_arch = "aarch64")))]
+pub const INSTALLER: Installer = Installer {
+    name: "Equalizer APO",
+    url: "https://sourceforge.net/projects/equalizerapo/files/1.4.2/EqualizerAPO-x64-1.4.2.exe/download",
+    sha256: "7403be7427bbe1936a40dded082829b6e217fc4f5990fee5cba501f0ae055afa",
+    file_name: "EqualizerAPO-x64-1.4.2.exe",
+    page: "https://sourceforge.net/projects/equalizerapo/files/",
+};
+
+#[cfg(all(windows, target_arch = "aarch64"))]
+pub const INSTALLER: Installer = Installer {
+    name: "Equalizer APO",
+    url: "https://sourceforge.net/projects/equalizerapo/files/1.4.2/EqualizerAPO-ARM64-1.4.2.exe/download",
+    sha256: "0dbfc64dee60f94cf77b297feb1f54d2633d49669bb474086fffb8db23e8f066",
+    file_name: "EqualizerAPO-ARM64-1.4.2.exe",
+    page: "https://sourceforge.net/projects/equalizerapo/files/",
+};
+
+#[cfg(not(any(target_os = "macos", windows)))]
+pub const INSTALLER: Installer = Installer {
+    name: "",
+    url: "",
+    sha256: "",
+    file_name: "",
+    page: "",
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -77,6 +121,13 @@ pub enum Blocker {
     /// Linux: the EasyEffects program leungo drives is not installed.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Effects,
+    /// Windows: Equalizer APO is not installed.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Apo,
+    /// Windows: Equalizer APO is installed but not switched on for the
+    /// device Windows plays to.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    ApoDevice,
 }
 
 impl Blocker {
@@ -85,6 +136,17 @@ impl Blocker {
             Blocker::Driver => "driver",
             Blocker::Output => "output",
             Blocker::Effects => "effects",
+            Blocker::Apo => "apo",
+            Blocker::ApoDevice => "apo-device",
+        }
+    }
+
+    /// Whether the install button fetches what is missing.
+    pub fn can_install(self, driver: &str) -> bool {
+        match self {
+            Blocker::Driver => is_blackhole(driver),
+            Blocker::Apo => true,
+            _ => false,
         }
     }
 }
@@ -169,9 +231,46 @@ pub fn blocker(loopback: &str, wanted_output: &str) -> Option<Blocker> {
     output_blocked(&outputs, default.as_deref(), loopback, wanted_output).then_some(Blocker::Output)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+pub fn blocker(_loopback: &str, _wanted_output: &str) -> Option<Blocker> {
+    if leungo_applier_apo::install_dir().is_none() || leungo_applier_apo::config_dir().is_none() {
+        return Some(Blocker::Apo);
+    }
+    match leungo_capture_wasapi::default_output() {
+        Some((_, id)) if !leungo_applier_apo::enabled_on(&id) => Some(Blocker::ApoDevice),
+        _ => None,
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn blocker(_loopback: &str, _wanted_output: &str) -> Option<Blocker> {
     None
+}
+
+/// The device Windows plays to, which Equalizer APO has to be on for.
+#[cfg(windows)]
+pub fn system_output() -> String {
+    leungo_capture_wasapi::default_output()
+        .map(|(name, _)| name)
+        .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+pub fn system_output() -> String {
+    String::new()
+}
+
+/// Opens Equalizer APO's Device Selector, where the user ticks the devices
+/// it runs on. It asks for administrator rights itself.
+#[cfg(windows)]
+pub fn open_device_selector() -> Result<()> {
+    let dir = leungo_applier_apo::install_dir().context("Equalizer APO is not installed")?;
+    crate::win::shell_open(dir.join("DeviceSelector.exe").as_os_str(), "runas")
+}
+
+#[cfg(not(windows))]
+pub fn open_device_selector() -> Result<()> {
+    bail!("the Device Selector is part of Equalizer APO on Windows")
 }
 
 #[cfg(target_os = "macos")]
@@ -182,7 +281,13 @@ pub fn default_moved(loopback: &str, active: &str) -> bool {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+pub fn default_moved(_loopback: &str, active: &str) -> bool {
+    let now = system_output();
+    !now.is_empty() && now != active
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn default_moved(_loopback: &str, _active: &str) -> bool {
     false
 }
@@ -199,7 +304,7 @@ pub fn is_known_device(names: &[String], choice: &str) -> bool {
 /// output means the engine opened whatever the default was at start, so only
 /// the driver is checked.
 pub fn device_lost(loopback: &str, wanted_output: &str) -> bool {
-    if wanted_output.is_empty() {
+    if wanted_output.is_empty() && !cfg!(windows) {
         return !driver_present(loopback);
     }
     blocker(loopback, wanted_output).is_some()
@@ -241,24 +346,56 @@ pub fn choices(_loopback: &str) -> Choices {
 }
 
 fn sha256_of(path: &Path) -> Result<String> {
-    let out = Command::new("shasum")
-        .args(["-a", "256"])
-        .arg(path)
-        .output()
-        .context("run shasum")?;
-    ensure!(out.status.success(), "shasum failed");
-    let text = String::from_utf8_lossy(&out.stdout);
-    Ok(text.split_whitespace().next().unwrap_or("").to_lowercase())
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    Ok(Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
-/// Downloads the pinned installer, checks its SHA-256 and opens it in the
-/// macOS Installer, which asks for the administrator password itself.
+#[cfg(target_os = "macos")]
+fn open_installer(path: &Path) -> Result<()> {
+    let status = Command::new("open")
+        .arg(path)
+        .status()
+        .context("run open")?;
+    ensure!(status.success(), "could not open the installer");
+    Ok(())
+}
+
+#[cfg(windows)]
+fn open_installer(path: &Path) -> Result<()> {
+    crate::win::shell_open(path.as_os_str(), "open").context("could not open the installer")
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn open_installer(_path: &Path) -> Result<()> {
+    bail!("nothing to install on this platform")
+}
+
+const AFTER_INSTALL: &str = if cfg!(windows) {
+    "In the installer, tick the device you listen on, then restart Windows."
+} else {
+    "Finish the installer. Restart your Mac if it asks you to."
+};
+
+/// Downloads the pinned installer, checks its SHA-256 and opens it. The
+/// installer asks for administrator rights itself.
 pub fn install_driver(progress: &dyn Fn(Phase, &str)) -> Result<()> {
+    let installer = &INSTALLER;
+    ensure!(
+        !installer.url.is_empty(),
+        "nothing to install on this platform"
+    );
     let dir = std::env::temp_dir().join(format!("leungo-setup-{}", std::process::id()));
     std::fs::create_dir_all(&dir).context("create download directory")?;
-    let pkg = dir.join("BlackHole2ch.pkg");
+    let file = dir.join(installer.file_name);
 
-    progress(Phase::Downloading, "Downloading BlackHole 2ch");
+    progress(
+        Phase::Downloading,
+        &format!("Downloading {}", installer.name),
+    );
     let status = Command::new("curl")
         .args([
             "--fail",
@@ -267,39 +404,63 @@ pub fn install_driver(progress: &dyn Fn(Phase, &str)) -> Result<()> {
             "--show-error",
             "--proto",
             "=https",
+            "--proto-redir",
+            "=https",
             "--output",
         ])
-        .arg(&pkg)
-        .arg(PKG_URL)
+        .arg(&file)
+        .arg(installer.url)
         .status()
         .context("run curl")?;
     if !status.success() {
-        bail!("download failed; get BlackHole from {DOWNLOAD_PAGE}");
+        bail!(
+            "download failed; get {} from {}",
+            installer.name,
+            installer.page
+        );
     }
 
-    let sum = sha256_of(&pkg)?;
-    if sum != PKG_SHA256 {
-        let _ = std::fs::remove_file(&pkg);
-        bail!("downloaded installer did not match the expected checksum, so it was discarded");
+    let sum = sha256_of(&file)?;
+    if sum != installer.sha256 {
+        let _ = std::fs::remove_file(&file);
+        bail!(
+            "the download did not match the expected checksum, so it was discarded; get {} from {}",
+            installer.name,
+            installer.page
+        );
     }
 
-    let status = Command::new("open")
-        .arg(&pkg)
-        .status()
-        .context("run open")?;
-    ensure!(status.success(), "could not open the installer");
-    progress(
-        Phase::InstallerOpened,
-        "Finish the installer. Restart your Mac if it asks you to.",
-    );
+    open_installer(&file)?;
+    progress(Phase::InstallerOpened, AFTER_INSTALL);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        any_matches, command_in_path, install_hint, is_blackhole, is_known_device, output_blocked,
+        Blocker, any_matches, command_in_path, install_hint, is_blackhole, is_known_device,
+        output_blocked, sha256_of,
     };
+
+    #[test]
+    fn hashes_a_file_as_lowercase_hex() {
+        let path = std::env::temp_dir().join(format!("leungo-sha-{}", std::process::id()));
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_of(&path).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn offers_an_install_only_for_what_it_can_fetch() {
+        assert!(Blocker::Apo.can_install(""));
+        assert!(Blocker::Driver.can_install("BlackHole"));
+        assert!(!Blocker::Driver.can_install("Loopback Audio"));
+        assert!(!Blocker::ApoDevice.can_install(""));
+        assert!(!Blocker::Effects.can_install(""));
+    }
 
     #[test]
     fn accepts_exact_names_and_saved_fragments_only() {
