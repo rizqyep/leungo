@@ -6,6 +6,7 @@
 
 pub mod bridge;
 pub mod chain;
+pub mod makeup;
 pub mod resample;
 
 #[cfg(feature = "audio-io")]

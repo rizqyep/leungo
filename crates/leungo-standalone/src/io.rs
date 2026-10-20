@@ -6,6 +6,7 @@
 //! keeps them alive, and runs the bridge loop.
 
 use crate::bridge::Bridge;
+use crate::makeup::MakeupGain;
 use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use leungo_core::{EqApplier, EqOutput, SampleSource, SourceEvent};
@@ -17,6 +18,8 @@ use std::time::Duration;
 
 /// Longest the queues may grow, in frames at 48 kHz-ish rates (about 1 s).
 const MAX_QUEUE_FRAMES: usize = 48_000;
+
+const MAKEUP_RISE_DELAY_MS: usize = 150;
 
 pub struct Settings {
     /// Part of the loopback device's name, for example "BlackHole".
@@ -306,7 +309,7 @@ fn build_streams(
     ))
 }
 
-fn bridge_loop(sh: &Shared, mut bridge: Bridge, tx: Sender<Vec<f32>>) {
+fn bridge_loop(sh: &Shared, mut bridge: Bridge, mut makeup: MakeupGain, tx: Sender<Vec<f32>>) {
     let mut block: Vec<f32> = Vec::new();
     let mut produced: Vec<f32> = Vec::new();
     while !sh.stop.load(Ordering::Relaxed) {
@@ -318,10 +321,10 @@ fn bridge_loop(sh: &Shared, mut bridge: Bridge, tx: Sender<Vec<f32>>) {
         if block.is_empty() {
             continue;
         }
-        let makeup = f32::from_bits(sh.makeup.load(Ordering::Relaxed));
-        if makeup != 1.0 {
-            block.iter_mut().for_each(|v| *v *= makeup);
-        }
+        makeup.process(
+            f32::from_bits(sh.makeup.load(Ordering::Relaxed)),
+            &mut block,
+        );
         // pre-EQ copy for the analysis
         if tx.send(block.clone()).is_err() {
             break;
@@ -379,8 +382,10 @@ pub fn start(settings: Settings, stop: Arc<AtomicBool>) -> Result<Running> {
                     info.output_rate as f64,
                     target_frames,
                 );
+                let makeup =
+                    MakeupGain::new(info.input_rate as usize * MAKEUP_RISE_DELAY_MS / 1000);
                 let _ = init_tx.send(Ok(info));
-                bridge_loop(&sh, bridge, chunk_tx);
+                bridge_loop(&sh, bridge, makeup, chunk_tx);
                 drop(streams);
             }
             Err(e) => {

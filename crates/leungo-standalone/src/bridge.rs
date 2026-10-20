@@ -3,6 +3,7 @@
 //! without any audio hardware.
 
 use crate::chain::EqChain;
+use crate::makeup::soft_limit;
 use crate::resample::{AdaptiveResampler, drift_ratio};
 
 pub struct Bridge {
@@ -44,6 +45,7 @@ impl Bridge {
             self.resampler.process(input, ratio, out);
         }
         self.chain.process(&mut out[start..]);
+        soft_limit(&mut out[start..]);
     }
 
     /// Equal device rates need no interpolation. Clock drift is absorbed by

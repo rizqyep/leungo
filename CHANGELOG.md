@@ -3,6 +3,16 @@
 Each release lists what got better. Builds are unsigned (macOS, Windows) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.2.1
+
+- No more crackling and short pauses on macOS. Opened from Finder, Leungo
+  ran at the lowest background priority, so its audio arrived late and
+  broke up. The app now runs its audio engine at normal priority.
+- No burst of distortion when Leungo starts at a low volume on macOS.
+  The volume makeup now waits for the quieter audio to arrive before
+  boosting it, and a soft limiter keeps every sample below full scale.
+- The macOS app has its icon.
+
 ## v0.2.0
 
 - Windows support. Leungo listens to every app except itself and applies
