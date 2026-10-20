@@ -442,6 +442,15 @@ mod tests {
         output_blocked, sha256_of,
     };
 
+    #[cfg(all(windows, not(target_arch = "aarch64")))]
+    #[test]
+    fn the_windows_installer_fetches_the_same_equalizer_apo() {
+        let iss = include_str!("../../../packaging/windows/leungo.iss");
+        let installer = &super::INSTALLER;
+        assert!(iss.contains(&format!("#define ApoUrl \"{}\"", installer.url)));
+        assert!(iss.contains(&format!("#define ApoSha256 \"{}\"", installer.sha256)));
+    }
+
     #[test]
     fn hashes_a_file_as_lowercase_hex() {
         let path = std::env::temp_dir().join(format!("leungo-sha-{}", std::process::id()));

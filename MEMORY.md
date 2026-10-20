@@ -27,3 +27,17 @@ Why things are the way they are, where the code alone doesn't say.
 - **The engine restarts when the default output changes.** Equalizer APO is
   per device, so the new output may need the Device Selector, and the
   dashboard shows which device it's playing to.
+- **A separate `leungo-app.exe` starts the dashboard.** `leungo.exe` must
+  stay a console program so terminal commands print; a GUI-subsystem build
+  that reattaches to the parent console returns the prompt before output.
+  The launcher is GUI-subsystem and starts `leungo gui --quit-on-close`
+  with `CREATE_NO_WINDOW`, whose hidden console children (curl, a restarted
+  engine) inherit, so no console window ever flashes.
+- **Quitting empties `leungo.txt`.** Equalizer APO keeps applying the last
+  file after Leungo exits, which would leave the sound changed with nothing
+  running. Uninstalling runs `leungo detach`, which also removes the include
+  and restores the installer's `config.txt`.
+- **The installer is per-user (Inno Setup, `PrivilegesRequired=lowest`).**
+  Leungo needs no admin rights; only Equalizer APO's own installer asks.
+  Equalizer APO's Device Selector has no command line, so ticking the device
+  stays a manual step in its window.

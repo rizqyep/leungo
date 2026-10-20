@@ -3,6 +3,16 @@
 Each release lists what got better. Builds are unsigned (macOS, Windows) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.2.2
+
+- A Windows installer. `Leungo-<version>-windows-x64-setup.exe` installs
+  Leungo for your user with a Start menu shortcut, and if Equalizer APO is
+  missing it downloads it, checks it and opens its installer, then restarts
+  into Leungo.
+- On Windows, Leungo opens without a console window, and closing its window
+  quits it. Quitting switches its equalizer off instead of leaving the last
+  curve applied, and uninstalling puts Equalizer APO back the way it was.
+
 ## v0.2.1
 
 - No more crackling and short pauses on macOS. Opened from Finder, Leungo

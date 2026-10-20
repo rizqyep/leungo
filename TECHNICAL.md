@@ -648,6 +648,7 @@ local process can use it).
 | `leungo-players` | Track ids: MPRIS (Linux), AppleScript (macOS), system media controls (Windows) |
 | `leungo-standalone` | macOS audio: loopback capture, resampling, drift control, filter chain |
 | `leungo-cli` | The `leungo` binary, dashboard, setup flows |
+| `leungo-app` | Windows launcher: starts the dashboard without a console window, quitting with it |
 
 Platform code sits behind two traits in `leungo-core`: `SampleSource` (audio
 in) and `EqApplier` (EQ out). The engine knows nothing about PulseAudio,
