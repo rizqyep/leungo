@@ -28,7 +28,7 @@ computer.
 |---|---|
 | Linux (PipeWire or PulseAudio) | Works. Uses EasyEffects to apply the EQ. `.deb`, `.rpm`, or build from source. |
 | macOS (Apple silicon) | Early. Uses the BlackHole driver. Please report problems. |
-| Windows 10 (2004 or later) and 11 | Early. Uses Equalizer APO to apply the EQ. `.zip`, or build from source. Please report problems. |
+| Windows 10 (2004 or later) and 11 | Early. Uses Equalizer APO to apply the EQ. Installer (`-setup.exe`) or `.zip`. Please report problems. |
 
 ## What it does to the sound
 
@@ -89,17 +89,21 @@ you close the window, the output goes back to how it was.
 
 ### Windows
 
-1. Download `leungo-<version>-windows-x64.zip` from the
-   [Releases page](https://github.com/rizqyep/leungo/releases), unzip it
-   somewhere you keep programs, and run `leungo gui` in that folder. There
-   is no installer yet, and the build isn't signed, so Windows SmartScreen
-   may warn the first time: choose **More info**, then **Run anyway**.
-2. If Leungo asks for Equalizer APO, click **Install Equalizer APO**. Leungo
-   downloads the official installer and checks it before opening it; Windows
-   asks for permission. At the end, tick the device you listen on, then
-   restart Windows.
-3. If Equalizer APO isn't on for the device Windows plays to, click **Open
-   Device Selector**, tick it, and restart Windows.
+1. Download `Leungo-<version>-windows-x64-setup.exe` from the
+   [Releases page](https://github.com/rizqyep/leungo/releases) and open it.
+   The build isn't signed yet, so Windows may say it protected your PC:
+   click **More info**, then **Run anyway**.
+2. Click through setup. If Equalizer APO (the free equalizer Leungo uses on
+   Windows) is missing, setup downloads and opens its installer. When its
+   device window appears, tick the device you listen on, such as your
+   headphones, and click **OK**.
+3. Restart Windows when setup asks. Leungo opens by itself afterwards; next
+   time, open it from the Start menu.
+
+Closing the Leungo window quits Leungo and switches its equalizer off.
+Uninstall it from Settings, Apps; Equalizer APO is then put back the way it
+was (uninstall Equalizer APO separately if you no longer want it). A `.zip`
+with the same programs is there too, for running without installing.
 
 Leungo listens to every app except itself and writes its EQ to
 `leungo.txt` in Equalizer APO's config folder. The first time, it replaces
@@ -115,7 +119,7 @@ paste this:
 ```text
 Install Leungo from https://github.com/rizqyep/leungo on this computer.
 Use the latest release from the Releases page, not the source, and pick the
-right file for my OS (.dmg on macOS, .deb or .rpm on Linux, .zip on Windows). Check the file
+right file for my OS (.dmg on macOS, .deb or .rpm on Linux, -setup.exe on Windows). Check the file
 against its .sha256 before installing. On Linux, make sure EasyEffects is
 installed too. Ask me before any command that needs sudo or my password.
 When it's done, start it with `leungo gui` (Linux) or open the app (macOS),

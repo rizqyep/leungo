@@ -1,0 +1,10 @@
+[package]
+name = "leungo-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Starts the Leungo dashboard without a terminal window"
+
+[[bin]]
+name = "leungo-app"
+path = "src/main.rs"

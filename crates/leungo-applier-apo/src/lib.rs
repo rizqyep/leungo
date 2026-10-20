@@ -45,6 +45,10 @@ impl ApoApplier {
             include_from_main_config(&self.dir.join("config.txt"), &self.file_name)?;
             self.included = true;
         }
+        self.replace(text)
+    }
+
+    fn replace(&self, text: &str) -> Result<()> {
         let path = self.dir.join(&self.file_name);
         // Equalizer APO could reload between a truncate and the write and
         // play a flat curve for a moment; a rename is atomic.
@@ -54,6 +58,19 @@ impl ApoApplier {
             .with_context(|| format!("replace {}", path.display()))
     }
 }
+
+/// Equalizer APO keeps applying the last file after leungo exits, so quitting
+/// leaves it empty and the sound goes back to how it was.
+impl Drop for ApoApplier {
+    fn drop(&mut self) {
+        if self.included {
+            let _ = self.replace(NOT_RUNNING);
+        }
+    }
+}
+
+const NOT_RUNNING: &str = "# leungo is not running, so this changes nothing.
+";
 
 /// Equalizer APO opens its config files to reload them whenever anything in
 /// the folder changes, and Windows refuses to replace a file that is open.
@@ -155,6 +172,37 @@ fn with_include(current: &str, file_name: &str) -> Option<String> {
     out.push_str(&line);
     out.push('\n');
     Some(out)
+}
+
+/// Undoes what leungo did to Equalizer APO's folder: drops the include from
+/// `config.txt` (putting the installer's config back if nothing else is
+/// left) and deletes leungo's file.
+pub fn detach(dir: &Path, file_name: &str) -> Result<()> {
+    let config = dir.join("config.txt");
+    let backup = config.with_extension("txt.before-leungo");
+    let current = std::fs::read_to_string(&config).unwrap_or_default();
+    let remaining = without_include(&current, file_name);
+    let restored = if remaining.trim().is_empty() {
+        std::fs::read_to_string(&backup).ok()
+    } else {
+        None
+    };
+    if let Some(text) = restored.or((remaining != current).then_some(remaining)) {
+        retry_while_busy(|| std::fs::write(&config, &text))
+            .with_context(|| format!("write {}", config.display()))?;
+    }
+    let _ = std::fs::remove_file(&backup);
+    let _ = std::fs::remove_file(dir.join(file_name));
+    Ok(())
+}
+
+fn without_include(current: &str, file_name: &str) -> String {
+    let line = format!("Include: {file_name}");
+    current
+        .lines()
+        .filter(|l| !l.trim().eq_ignore_ascii_case(&line))
+        .map(|l| format!("{l}\n"))
+        .collect()
 }
 
 fn is_stock(config: &str) -> bool {
@@ -283,6 +331,36 @@ mod tests {
     }
 
     #[test]
+    fn detaching_puts_the_installer_config_back() {
+        let dir = std::env::temp_dir().join(format!("leungo-detach-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.txt"), stock()).unwrap();
+        let mut applier = ApoApplier::new(&ApplierCfg {
+            preset_dir: Some(dir.clone()),
+            ..ApplierCfg::default()
+        })
+        .unwrap();
+        applier.set_bypass(true).unwrap();
+        drop(applier);
+        detach(&dir, "leungo.txt").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("config.txt")).unwrap(),
+            stock()
+        );
+        assert!(!dir.join("leungo.txt").exists());
+        assert!(!dir.join("config.txt.before-leungo").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn detaching_keeps_what_the_user_wrote() {
+        assert_eq!(
+            without_include("Preamp: -3 dB\r\nInclude: leungo.txt\r\n", "leungo.txt"),
+            "Preamp: -3 dB\n"
+        );
+    }
+
+    #[test]
     fn retries_only_while_the_file_is_busy() {
         let mut calls = 0;
         let r = retry_while_busy(|| {
@@ -330,6 +408,11 @@ mod tests {
         let written = std::fs::read_to_string(dir.join("leungo.txt")).unwrap();
         assert!(written.contains("Preamp: 0.00 dB"));
         assert!(!dir.join("leungo.tmp").exists());
+        drop(applier);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("leungo.txt")).unwrap(),
+            NOT_RUNNING
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

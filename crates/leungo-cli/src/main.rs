@@ -88,6 +88,9 @@ enum Cmd {
     Setup,
     /// Print the config file path.
     ConfigPath,
+    /// Windows: take leungo out of Equalizer APO's config (run on uninstall).
+    #[command(hide = true)]
+    Detach,
 }
 
 fn main() {
@@ -130,6 +133,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Cmd::Device { files, target } => device(&files, target.as_deref()),
         Cmd::Analyze { file } => analyze(&file),
         Cmd::Fit => fit(),
+        Cmd::Detach => detach(),
         Cmd::ConfigPath => {
             println!("{}", paths::config_path().display());
             Ok(())
@@ -256,6 +260,25 @@ fn setup_cmd() -> Result<()> {
         "then set standalone.output_device in {} to your speakers.",
         paths::config_path().display()
     );
+    Ok(())
+}
+
+#[cfg(windows)]
+fn detach() -> Result<()> {
+    let cfg = paths::load_or_create_config()?;
+    let Some(dir) = cfg
+        .applier
+        .preset_dir
+        .clone()
+        .or_else(leungo_applier_apo::config_dir)
+    else {
+        return Ok(());
+    };
+    leungo_applier_apo::detach(&dir, &format!("{}.txt", cfg.applier.preset_name))
+}
+
+#[cfg(not(windows))]
+fn detach() -> Result<()> {
     Ok(())
 }
 

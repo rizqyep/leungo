@@ -63,29 +63,42 @@ jobs:
           name: dist-linux
           path: dist/*
 
-  windows-zip:
+  windows-packages:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p leungo-cli
+      - run: cargo build --release -p leungo-cli -p leungo-app
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
       - name: Package
         shell: pwsh
         run: |
           $V = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
           $name = "leungo-$V-windows-x64"
           New-Item -ItemType Directory -Force "stage/$name", dist | Out-Null
-          Copy-Item target/release/leungo.exe, assets/brand/app/leungo.ico, LICENSE, README.md "stage/$name"
+          Copy-Item target/release/leungo.exe, target/release/leungo-app.exe, assets/brand/app/leungo.ico, LICENSE, README.md "stage/$name"
           Compress-Archive -Path "stage/$name" -DestinationPath "dist/$name.zip"
-          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.zip" | Out-File -Encoding ascii -NoNewline "dist/$name.zip.sha256"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$V" packaging/windows/leungo.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist -Exclude *.sha256 | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -Encoding ascii -NoNewline "$($_.FullName).sha256"
+          }
           Get-ChildItem dist
-      - name: Check the zip runs
+      - name: Check the setup installs and runs
         shell: pwsh
         run: |
-          Expand-Archive (Get-ChildItem dist/*.zip).FullName -DestinationPath check
-          & (Get-ChildItem check -Recurse -Filter leungo.exe).FullName --version
+          $setup = (Get-ChildItem dist/*-setup.exe).FullName
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=' -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\Leungo"
+          & "$dir\leungo.exe" --version
+          if (-not (Test-Path "$dir\leungo-app.exe")) { throw 'leungo-app.exe missing' }
+          Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
+          if (Test-Path "$dir\leungo.exe") { throw 'uninstall left leungo.exe behind' }
       - uses: actions/upload-artifact@v4
         with:
           name: dist-windows
@@ -93,7 +106,7 @@ jobs:
 
   publish:
     if: github.ref_type == 'tag'
-    needs: [macos-dmg, linux-packages, windows-zip]
+    needs: [macos-dmg, linux-packages, windows-packages]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +123,7 @@ jobs:
           # this version's section of CHANGELOG.md, without its heading
           awk -v tag="## $GITHUB_REF_NAME" '$0 == tag {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
-          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), Linux x86_64 packages (.deb, .rpm), and an unsigned Windows x64 build (.zip; needs Equalizer APO, which Leungo offers to install). See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
+          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), Linux x86_64 packages (.deb, .rpm), and an unsigned Windows x64 installer (-setup.exe, which also offers to install Equalizer APO) and .zip. See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Leungo $GITHUB_REF_NAME" \
