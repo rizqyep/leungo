@@ -15,10 +15,17 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$OUT"
 
 cp "$BIN" "$APP/Contents/MacOS/leungo-bin"
 
-# The bundle's entry point starts the daemon with the dashboard.
+# The bundle's entry point starts the daemon with the dashboard as a child
+# process. macOS runs the process it launches as an app with no window of
+# its own at background priority, CoreAudio threads included; a child keeps
+# normal and realtime priorities.
 cat > "$APP/Contents/MacOS/Leungo" <<'LAUNCH'
 #!/bin/bash
-exec "$(dirname "$0")/leungo-bin" gui --quit-on-close
+"$(dirname "$0")/leungo-bin" gui --quit-on-close &
+child=$!
+trap 'kill -INT "$child" 2>/dev/null' INT TERM HUP
+wait "$child"
+wait "$child"
 LAUNCH
 chmod +x "$APP/Contents/MacOS/Leungo"
 
@@ -34,6 +41,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>leungo</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Leungo listens to the BlackHole loopback device to analyse and equalise your music.</string>
@@ -43,9 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [ -f "$ROOT/assets/brand/leungo.icns" ]; then
-  cp "$ROOT/assets/brand/leungo.icns" "$APP/Contents/Resources/"
-fi
+cp "$ROOT/assets/brand/app/leungo.icns" "$APP/Contents/Resources/"
 
 [ "$(wc -c < "$APP/Contents/MacOS/leungo-bin")" -eq "$(wc -c < "$BIN")" ] || { echo "bundled binary was overwritten" >&2; exit 1; }
 

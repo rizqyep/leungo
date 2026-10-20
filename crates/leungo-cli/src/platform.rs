@@ -61,6 +61,7 @@ pub fn setup(cfg: &mut Config, stop: Arc<AtomicBool>) -> Result<Platform> {
         latency_ms: cfg.standalone.latency_ms,
         freqs: cfg.eq.frequencies.clone(),
         q: cfg.eq.q,
+        glide_s: cfg.analysis.transition_step_s,
     };
     let mut attempt = 0;
     let running = loop {
