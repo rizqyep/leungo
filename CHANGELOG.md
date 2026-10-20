@@ -11,6 +11,9 @@ has not been verified on all hardware; please report problems.
 - No burst of distortion when Leungo starts at a low volume on macOS.
   The volume makeup now waits for the quieter audio to arrive before
   boosting it, and a soft limiter keeps every sample below full scale.
+- Smoother EQ fades on macOS. Each step of a fade now glides into the
+  next instead of jumping in a few milliseconds and holding, so a new
+  curve sweeps in continuously.
 - The macOS app has its icon.
 
 ## v0.2.0

@@ -29,6 +29,7 @@ pub struct Settings {
     pub latency_ms: u32,
     pub freqs: Vec<f64>,
     pub q: f64,
+    pub glide_s: f64,
 }
 
 pub struct DeviceEntry {
@@ -375,13 +376,14 @@ pub fn start(settings: Settings, stop: Arc<AtomicBool>) -> Result<Running> {
         .name("leungo-audio".into())
         .spawn(move || match build_streams(&settings, &sh) {
             Ok((streams, info, target_frames)) => {
-                let bridge = Bridge::new(
+                let mut bridge = Bridge::new(
                     &settings.freqs,
                     settings.q,
                     info.input_rate as f64,
                     info.output_rate as f64,
                     target_frames,
                 );
+                bridge.chain.set_glide(settings.glide_s);
                 let makeup =
                     MakeupGain::new(info.input_rate as usize * MAKEUP_RISE_DELAY_MS / 1000);
                 let _ = init_tx.send(Ok(info));

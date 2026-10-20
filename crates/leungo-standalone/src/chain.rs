@@ -11,16 +11,20 @@ pub struct EqChain {
     freqs: Vec<f64>,
     q: f64,
     fs: f64,
+    glide_frames: f64,
     current: Vec<f64>,
     target: Vec<f64>,
+    rate: Vec<f64>,
     coeffs: Vec<Coeffs>,
     state: Vec<[BiquadState; 2]>,
     device: Vec<Filter>,
     device_current: Vec<f64>,
+    device_rate: Vec<f64>,
     device_coeffs: Vec<Coeffs>,
     device_state: Vec<[BiquadState; 2]>,
     preamp_db: f64,
     preamp_target_db: f64,
+    preamp_rate: f64,
 }
 
 impl EqChain {
@@ -30,8 +34,10 @@ impl EqChain {
             freqs: freqs.to_vec(),
             q,
             fs,
+            glide_frames: 0.0,
             current: vec![0.0; n],
             target: vec![0.0; n],
+            rate: vec![0.0; n],
             coeffs: freqs
                 .iter()
                 .map(|&f| peaking_coeffs(f, 0.0, q, fs))
@@ -39,18 +45,32 @@ impl EqChain {
             state: vec![[BiquadState::default(); 2]; n],
             device: Vec::new(),
             device_current: Vec::new(),
+            device_rate: Vec::new(),
             device_coeffs: Vec::new(),
             device_state: Vec::new(),
             preamp_db: 0.0,
             preamp_target_db: 0.0,
+            preamp_rate: 0.0,
         }
+    }
+
+    pub fn set_glide(&mut self, seconds: f64) {
+        self.glide_frames = if seconds.is_finite() {
+            (seconds * self.fs).max(0.0)
+        } else {
+            0.0
+        };
     }
 
     /// Sets the gains to move toward. A slice of the wrong length is ignored.
     pub fn set_target(&mut self, gains: &[f64]) {
         if gains.len() == self.target.len() {
-            for (t, g) in self.target.iter_mut().zip(gains) {
-                *t = sane_db(*g);
+            for (i, &g) in gains.iter().enumerate() {
+                let g = sane_db(g);
+                if g != self.target[i] {
+                    self.target[i] = g;
+                    self.rate[i] = rate_toward(self.current[i], g, self.glide_frames);
+                }
             }
         }
     }
@@ -64,6 +84,7 @@ impl EqChain {
                 .zip(&self.device)
                 .all(|(a, b)| a.kind == b.kind && a.fc == b.fc && a.q == b.q);
         if !same_shape {
+            self.device = Vec::new();
             self.device_current = vec![0.0; filters.len()];
             self.device_state = vec![[BiquadState::default(); 2]; filters.len()];
             self.device_coeffs = filters
@@ -71,17 +92,29 @@ impl EqChain {
                 .map(|f| coeffs(&Filter { gain_db: 0.0, ..*f }, self.fs))
                 .collect();
         }
+        let gains: Vec<f64> = filters.iter().map(|f| sane_db(f.gain_db)).collect();
+        if self.device.len() != filters.len()
+            || self.device.iter().zip(&gains).any(|(f, g)| f.gain_db != *g)
+        {
+            self.device_rate = gains
+                .iter()
+                .zip(&self.device_current)
+                .map(|(&g, &cur)| rate_toward(cur, g, self.glide_frames))
+                .collect();
+        }
         self.device = filters
             .iter()
-            .map(|f| Filter {
-                gain_db: sane_db(f.gain_db),
-                ..*f
-            })
+            .zip(gains)
+            .map(|(f, gain_db)| Filter { gain_db, ..*f })
             .collect();
     }
 
     pub fn set_preamp(&mut self, db: f64) {
-        self.preamp_target_db = sane_db(db).min(0.0);
+        let db = sane_db(db).min(0.0);
+        if db != self.preamp_target_db {
+            self.preamp_target_db = db;
+            self.preamp_rate = rate_toward(self.preamp_db, db, self.glide_frames);
+        }
     }
 
     pub fn current(&self) -> &[f64] {
@@ -102,13 +135,19 @@ impl EqChain {
     /// Filters interleaved L/R samples in place. Call once per block of a
     /// few milliseconds: gains move by at most `MAX_STEP_DB` per call.
     pub fn process(&mut self, io: &mut [f32]) {
+        let frames = (io.len() / 2) as f64;
         for i in 0..self.current.len() {
-            if step(&mut self.current[i], self.target[i]) {
+            if step(&mut self.current[i], self.target[i], self.rate[i], frames) {
                 self.coeffs[i] = peaking_coeffs(self.freqs[i], self.current[i], self.q, self.fs);
             }
         }
         for i in 0..self.device.len() {
-            if step(&mut self.device_current[i], self.device[i].gain_db) {
+            if step(
+                &mut self.device_current[i],
+                self.device[i].gain_db,
+                self.device_rate[i],
+                frames,
+            ) {
                 let f = Filter {
                     gain_db: self.device_current[i],
                     ..self.device[i]
@@ -116,7 +155,12 @@ impl EqChain {
                 self.device_coeffs[i] = coeffs(&f, self.fs);
             }
         }
-        step(&mut self.preamp_db, self.preamp_target_db);
+        step(
+            &mut self.preamp_db,
+            self.preamp_target_db,
+            self.preamp_rate,
+            frames,
+        );
         if self.is_flat() {
             return;
         }
@@ -136,9 +180,19 @@ impl EqChain {
     }
 }
 
-/// Moves `cur` toward `target` by at most one step. True if it moved.
-fn step(cur: &mut f64, target: f64) -> bool {
-    let d = (target - *cur).clamp(-MAX_STEP_DB, MAX_STEP_DB);
+fn rate_toward(cur: f64, target: f64, glide_frames: f64) -> f64 {
+    if glide_frames > 0.0 {
+        (target - cur).abs() / glide_frames
+    } else {
+        f64::INFINITY
+    }
+}
+
+/// Moves `cur` toward `target` by `rate` dB per frame, at most `MAX_STEP_DB`.
+/// True if it moved.
+fn step(cur: &mut f64, target: f64, rate: f64, frames: f64) -> bool {
+    let limit = (rate * frames).min(MAX_STEP_DB);
+    let d = (target - *cur).clamp(-limit, limit);
     *cur += d;
     d != 0.0
 }
@@ -225,6 +279,20 @@ mod tests {
             "{:?}",
             c.current()
         );
+    }
+
+    #[test]
+    fn a_glide_spreads_a_step_over_its_duration() {
+        let mut c = EqChain::new(&FREQS, 1.41, FS);
+        c.set_glide(0.5);
+        let mut g = [0.0; 8];
+        g[4] = 2.0;
+        c.set_target(&g);
+        run(&mut c, 1000.0, 47);
+        let halfway = c.current()[4];
+        assert!((halfway - 1.0).abs() < 0.05, "{halfway}");
+        run(&mut c, 1000.0, 50);
+        assert!((c.current()[4] - 2.0).abs() < 1e-9);
     }
 
     #[test]
