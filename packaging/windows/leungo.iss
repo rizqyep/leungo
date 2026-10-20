@@ -83,7 +83,7 @@ end;
 
 function WantApo: Boolean;
 begin
-  Result := (ApoPage <> nil) and ApoPage.Values[0];
+  Result := (ApoPage <> nil) and ApoPage.Values[0] and not WizardSilent;
 end;
 
 procedure InitializeWizard;

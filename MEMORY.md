@@ -41,3 +41,6 @@ Why things are the way they are, where the code alone doesn't say.
   Leungo needs no admin rights; only Equalizer APO's own installer asks.
   Equalizer APO's Device Selector has no command line, so ticking the device
   stays a manual step in its window.
+- **A silent install (`/VERYSILENT`) skips Equalizer APO.** Its installer
+  needs a person (permission prompt, device window), so a silent setup would
+  wait forever; Leungo offers Equalizer APO on first open instead.
