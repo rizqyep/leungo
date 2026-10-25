@@ -148,10 +148,12 @@ Maintainers cut a release by pushing a version tag:
 git tag v0.x.y && git push origin v0.x.y
 ```
 
-The `release` workflow then builds the macOS `.dmg` and the Linux `.deb` and
-`.rpm`, installs the packages as a smoke test, and publishes them. To check
-packaging without publishing, run the workflow manually from the Actions tab
-(`workflow_dispatch`); the publish job only runs for tags.
+The `release` workflow then builds the macOS `.dmg`, the Linux `.deb`, `.rpm`
+and `.AppImage`, installs the packages and runs the AppImage on Arch as a
+smoke test, and publishes them. To check packaging without publishing, run the
+workflow manually from the Actions tab (`workflow_dispatch`); the publish job
+only runs for tags. `packaging/linux/build-appimage.sh` can also be run by
+hand after `cargo build --release -p leungo-cli`.
 
 ## Data you should not add
 

@@ -22,6 +22,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build --release -p leungo-cli
+      - name: Build and run the AppImage
+        run: |
+          packaging/linux/build-appimage.sh 0.0.0-ci target/appimage
+          (cd target/appimage && sha256sum -c ./*.sha256)
+          APPIMAGE_EXTRACT_AND_RUN=1 target/appimage/Leungo-0.0.0-ci-x86_64.AppImage --version
 
   macos:
     # macos-14 is Apple silicon, the same architecture as an M-series Mac.

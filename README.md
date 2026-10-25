@@ -26,7 +26,7 @@ computer.
 
 | Platform | Status |
 |---|---|
-| Linux (PipeWire or PulseAudio) | Works. Uses EasyEffects to apply the EQ. `.deb`, `.rpm`, or build from source. |
+| Linux (PipeWire or PulseAudio) | Works. Uses EasyEffects to apply the EQ. `.deb`, `.rpm`, `.AppImage`, or build from source. |
 | macOS (Apple silicon) | Early. Uses the BlackHole driver. Please report problems. |
 | Windows 10 (2004 or later) and 11 | Early. Uses Equalizer APO to apply the EQ. Installer (`-setup.exe`) or `.zip`. Please report problems. |
 
@@ -59,17 +59,27 @@ The advanced view shows what it's doing: the spectrum of the playing song
 
 ### Linux
 
-Download the `.deb` or `.rpm` from the
+Download the `.deb`, `.rpm` or `.AppImage` from the
 [Releases page](https://github.com/rizqyep/leungo/releases):
 
 ```sh
 sudo apt install ./leungo_<version>_amd64.deb        # Debian, Ubuntu, Mint
 sudo dnf install ./leungo-<version>-1.x86_64.rpm     # Fedora and relatives
+
+# Any x86_64 distribution, including Arch
+chmod +x Leungo-<version>-x86_64.AppImage
+./Leungo-<version>-x86_64.AppImage
 ```
 
-Then start EasyEffects, play something, and run `leungo gui`. If EasyEffects
-is missing, the dashboard shows the install command for your distribution and
-continues once it's there.
+The AppImage opens the dashboard when started with no arguments and takes the
+CLI commands the same way (`./Leungo-<version>-x86_64.AppImage status`). It
+needs a `fusermount` helper, which desktops normally have; if one is missing,
+install `fuse3` (Arch: `sudo pacman -S fuse3`) or add
+`--appimage-extract-and-run`.
+
+Start EasyEffects, play something, and run `leungo gui` (or start the
+AppImage). If EasyEffects is missing, the dashboard shows the install command
+for your distribution and continues once it's there.
 
 ### macOS
 
@@ -119,11 +129,13 @@ paste this:
 ```text
 Install Leungo from https://github.com/rizqyep/leungo on this computer.
 Use the latest release from the Releases page, not the source, and pick the
-right file for my OS (.dmg on macOS, .deb or .rpm on Linux, -setup.exe on Windows). Check the file
-against its .sha256 before installing. On Linux, make sure EasyEffects is
-installed too. Ask me before any command that needs sudo or my password.
-When it's done, start it with `leungo gui` (Linux) or open the app (macOS),
-and tell me what to click first. Follow the README's Get started section.
+right file for my OS (.dmg on macOS, .deb, .rpm or .AppImage on Linux,
+-setup.exe on Windows). On Arch-based systems use the .AppImage. Check the
+file against its .sha256 before installing. On Linux, make sure EasyEffects
+is installed too. Ask me before any command that needs sudo or my password.
+When it's done, start it with `leungo gui` (packages), the .AppImage (Linux),
+or by opening the app (macOS), and tell me what to click first. Follow the
+README's Get started section.
 ```
 
 The agent can't approve macOS permission prompts (Microphone, Automation,

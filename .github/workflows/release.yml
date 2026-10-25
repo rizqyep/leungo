@@ -47,7 +47,8 @@ jobs:
           # RPM versions cannot contain '-'; '~' is its pre-release separator.
           RV="$(printf '%s' "$V" | tr '-' '~')"
           cargo generate-rpm -p crates/leungo-cli -s "version = \"$RV\"" -s 'release = "1"' -o dist/
-          for f in dist/*.deb dist/*.rpm; do (cd dist && sha256sum "$(basename "$f")" > "$(basename "$f").sha256"); done
+          packaging/linux/build-appimage.sh "$V" dist
+          for f in dist/*.deb dist/*.rpm dist/*.AppImage; do (cd dist && sha256sum "$(basename "$f")" > "$(basename "$f").sha256"); done
           ls -la dist
       - name: Check the deb installs and runs
         run: |
@@ -58,6 +59,12 @@ jobs:
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" fedora:latest sh -c \
             'dnf install -y --setopt=install_weak_deps=False /dist/*.rpm && rpm -qi leungo | head -3 && leungo setup'
+      - name: Check the AppImage runs on Arch
+        run: |
+          docker run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 -v "$PWD/dist:/dist:ro" archlinux:latest sh -c '
+            pacman -Sy --noconfirm --needed libpulse >/dev/null
+            /dist/Leungo-*-x86_64.AppImage --version
+            /dist/Leungo-*-x86_64.AppImage config-path'
       - uses: actions/upload-artifact@v4
         with:
           name: dist-linux
@@ -123,7 +130,7 @@ jobs:
           # this version's section of CHANGELOG.md, without its heading
           awk -v tag="## $GITHUB_REF_NAME" '$0 == tag {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
-          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), Linux x86_64 packages (.deb, .rpm), and an unsigned Windows x64 installer (-setup.exe, which also offers to install Equalizer APO) and .zip. See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
+          printf '\n---\nUnsigned macOS build for Apple silicon (.dmg), Linux x86_64 packages (.deb, .rpm, .AppImage), and an unsigned Windows x64 installer (-setup.exe, which also offers to install Equalizer APO) and .zip. See the README for install steps. Audio has not been verified on all hardware; please report problems.\n' >> notes.md
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Leungo $GITHUB_REF_NAME" \
