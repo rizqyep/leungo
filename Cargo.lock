@@ -898,7 +898,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "leungo-analysis"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "leungo-eq",
  "num-complex",
@@ -908,11 +908,11 @@ dependencies = [
 
 [[package]]
 name = "leungo-app"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "leungo-applier-apo"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "leungo-core",
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-applier-ee"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "leungo-core",
@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-capture-pipewire"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "leungo-core",
@@ -945,7 +945,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-capture-wasapi"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "leungo-core",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "dirs",
@@ -995,11 +995,11 @@ dependencies = [
 
 [[package]]
 name = "leungo-dsp"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "leungo-eq"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "leungo-dsp",
  "serde",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-players"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "tracing",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "leungo-standalone"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "coreaudio-sys",

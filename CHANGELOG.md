@@ -3,6 +3,13 @@
 Each release lists what got better. Builds are unsigned (macOS, Windows) and audio
 has not been verified on all hardware; please report problems.
 
+## v0.2.3
+
+- A Linux AppImage. `Leungo-<version>-x86_64.AppImage` runs on any x86_64
+  distribution without a package manager, including Arch and its relatives.
+  It opens the dashboard when started, takes the same CLI commands as the
+  package build, and ships with a `.sha256` like the other downloads.
+
 ## v0.2.2
 
 - A Windows installer. `Leungo-<version>-windows-x64-setup.exe` installs
